@@ -1,0 +1,6 @@
+# Runtime configuration for the Steam Link BLE proxy supervisor.
+# The proxy is the sole owner of hci0; do not run hcitool, btmon, or another
+# scanner against hci0 while this service is active.
+LOG_LEVEL=Warning
+BLE_PROXY_VERBOSE=0
+ESPHOME_API_VERBOSE=0

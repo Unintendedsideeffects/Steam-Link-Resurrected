@@ -1,0 +1,20 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 2cd3fd2..6524bfb 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -185,7 +185,8 @@ else()
+     message(STATUS "Server support: DISABLED")
+ endif()
+ 
+-add_library(${PROJECT_NAME} SHARED ${SRC})
++option(BUILD_SHARED_LIBS "Build a shared library" ON)
++add_library(${PROJECT_NAME} ${SRC})
+ 
+ # Link BlueZ libraries if enabled
+ if(WITH_BLUEZ_SUPPORT)
+@@ -259,4 +260,3 @@ configure_file("${PackagingTemplatesDir}/libblepp.pc.in" ${CMAKE_CURRENT_BINARY_
+ install(TARGETS ${TARGET1_NAME} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
+ install(DIRECTORY blepp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+ install(FILES ${CMAKE_CURRENT_BINARY_DIR}/libblepp.pc DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
+-
+

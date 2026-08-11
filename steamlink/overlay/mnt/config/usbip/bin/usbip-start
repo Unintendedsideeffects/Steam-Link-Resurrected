@@ -1,0 +1,21 @@
+#!/bin/sh
+BASE=/mnt/config/usbip
+LOG=/mnt/config/log/usbip.log
+mkdir -p /mnt/config/log
+
+load_module() {
+    name="$1"
+    file="$2"
+    if ! lsmod | awk '{print $1}' | grep -q "^${name}$"; then
+        insmod "$BASE/modules/$file" >>"$LOG" 2>&1 || true
+    fi
+}
+
+load_module usbip_core usbip-core.ko
+load_module usbip_host usbip-host.ko
+load_module vhci_hcd vhci-hcd.ko
+
+if ! netstat -lnt 2>/dev/null | grep -q ':3240 '; then
+    LD_LIBRARY_PATH="$BASE/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+        "$BASE/bin/usbipd" -D >>"$LOG" 2>&1
+fi

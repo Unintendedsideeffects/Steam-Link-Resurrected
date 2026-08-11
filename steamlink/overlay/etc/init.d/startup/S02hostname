@@ -1,0 +1,15 @@
+#!/bin/sh
+
+# Apply a device-local hostname without embedding a physical location in the
+# public package. Missing or invalid configuration leaves the firmware name
+# unchanged.
+CONF=/mnt/config/steamlink-usbip.conf
+[ -r "$CONF" ] || exit 0
+
+name=$(sed -n 's/^[[:space:]]*STEAMLINK_HOSTNAME[[:space:]]*=[[:space:]]*//p' "$CONF" | head -n 1)
+case "$name" in
+    ''|*[!A-Za-z0-9_.-]*) exit 0 ;;
+esac
+
+hostname "$name"
+exit 0

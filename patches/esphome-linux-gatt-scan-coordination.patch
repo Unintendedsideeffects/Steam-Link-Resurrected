@@ -1,0 +1,76 @@
+--- a/plugins/bluetooth_proxy/gatt_proxy.h
++++ b/plugins/bluetooth_proxy/gatt_proxy.h
+@@ -13,6 +13,8 @@
+ int gatt_proxy_init(esphome_plugin_context_t *ctx);
+ void gatt_proxy_cleanup(esphome_plugin_context_t *ctx);
+ void gatt_proxy_client_disconnected(esphome_plugin_context_t *ctx, int client_id);
++void bluetooth_proxy_pause_scanning(esphome_plugin_context_t *ctx);
++void bluetooth_proxy_resume_scanning(esphome_plugin_context_t *ctx);
+ int gatt_proxy_handle_message(esphome_plugin_context_t *ctx,
+                               int client_id,
+                               uint32_t msg_type,
+--- a/plugins/bluetooth_proxy/gatt_proxy.cpp
++++ b/plugins/bluetooth_proxy/gatt_proxy.cpp
+@@ -451,6 +451,10 @@
+     }
+ 
+     void run() {
++        bluetooth_proxy_pause_scanning(ctx_);
++        /* Let BlueZ finish the scan-disable command before libblepp claims
++         * the adapter for an active connection. */
++        usleep(500000);
+         bool connected_once = false;
+         /* Install the standard discovery chain explicitly so the proxy can add
+          * its connection and operation callbacks without overwriting it. */
+@@ -569,6 +570,7 @@
+         }
+         int32_t error = disconnect_error_.load();
+         send_connection(false, error == 0 ? EIO : error);
++        bluetooth_proxy_resume_scanning(ctx_);
+     }
+ };
+ 
+--- a/plugins/bluetooth_proxy/bluetooth_proxy_plugin.c
++++ b/plugins/bluetooth_proxy/bluetooth_proxy_plugin.c
+@@ -34,6 +34,7 @@
+     bool subscribed;
+     bool client_subscribed[ESPHOME_MAX_CLIENTS];
+     unsigned subscriber_count;
++    unsigned gatt_pause_count;
+ 
+     /* BLE advertisement batching */
+     esphome_ble_advertisements_response_t ble_batch;
+@@ -257,6 +258,33 @@
+     return 0;
+ }
+ 
++void bluetooth_proxy_pause_scanning(esphome_plugin_context_t *ctx) {
++    bluetooth_proxy_state_t *state = (bluetooth_proxy_state_t *)ctx->plugin_data;
++    if (!state) return;
++    state->gatt_pause_count++;
++    if (state->gatt_pause_count == 1 && state->subscribed) {
++        if (ble_scanner_stop(state->scanner) < 0) {
++            fprintf(stderr, "[bluetooth_proxy] Failed to pause BLE scanning for GATT\n");
++        } else {
++            state->subscribed = false;
++        }
++    }
++}
++
++void bluetooth_proxy_resume_scanning(esphome_plugin_context_t *ctx) {
++    bluetooth_proxy_state_t *state = (bluetooth_proxy_state_t *)ctx->plugin_data;
++    if (!state || state->gatt_pause_count == 0) return;
++    state->gatt_pause_count--;
++    if (state->gatt_pause_count == 0 && state->subscriber_count > 0 &&
++        !state->subscribed && state->ble_scanning_enabled) {
++        if (ble_scanner_start(state->scanner) < 0) {
++            fprintf(stderr, "[bluetooth_proxy] Failed to resume BLE scanning after GATT\n");
++        } else {
++            state->subscribed = true;
++        }
++    }
++}
++
+ /**
+  * Configure device info with Bluetooth proxy capabilities
+  */

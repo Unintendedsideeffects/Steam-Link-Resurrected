@@ -1,0 +1,16 @@
+The proxy consumes advertisements via BLEScanner::get_advertisements(),
+which rebuilds AdvertisingResponse from the transport AdvertisementData.
+That conversion dropped address_type, so every device was reported to Home
+Assistant as public (0) and GATT connects to random-address peers such as
+the Nanoleaf Remote NL26 (BlueZ: AddressType=random) always failed.
+
+--- a/src/lescan.cc
++++ b/src/lescan.cc
+@@ -223,6 +223,7 @@
+ 		for (const auto& ad : ads) {
+ 			AdvertisingResponse resp;
+ 			resp.address = ad.address;
++			resp.address_type = ad.address_type;
+ 			resp.type = static_cast<LeAdvertisingEventType>(ad.event_type);
+ 			resp.rssi = ad.rssi;
+ 

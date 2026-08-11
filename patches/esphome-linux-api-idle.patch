@@ -1,0 +1,12 @@
+diff --git a/src/esphome_api.c b/src/esphome_api.c
+--- a/src/esphome_api.c
++++ b/src/esphome_api.c
+@@ -546,5 +546,8 @@
+         if (received <= 0) {
+             if (received < 0) {
++                if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
++                    continue;
++                }
+                 fprintf(stderr, LOG_PREFIX "Recv failed: %s\n", strerror(errno));
+             }
+             printf(LOG_PREFIX "Client disconnected\n");

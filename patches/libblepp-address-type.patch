@@ -1,0 +1,52 @@
+diff --git a/blepp/lescan.h b/blepp/lescan.h
+index 0000000..0000000 100644
+--- a/blepp/lescan.h
++++ b/blepp/lescan.h
+@@ -58,6 +58,7 @@ namespace BLEPP
+ 	struct AdvertisingResponse
+ 	{
+ 		std::string address;
++		uint8_t address_type = 0; // 0=public, 1=random
+ 		LeAdvertisingEventType type;
+ 		int8_t rssi;
+ 		struct Name
+@@ -101,5 +101,6 @@ namespace BLEPP
+ 		AdvertisingResponse(const AdvertisingResponse& other)
+ 			: address(other.address)
++			, address_type(other.address_type)
+ 			, type(other.type)
+ 			, rssi(other.rssi)
+ 			, UUIDs(other.UUIDs)
+@@ -118,6 +118,7 @@ namespace BLEPP
+ 		AdvertisingResponse& operator=(const AdvertisingResponse& other) {
+ 			if (this != &other) {
+ 				address = other.address;
++				address_type = other.address_type;
+ 				type = other.type;
+ 				rssi = other.rssi;
+ 				UUIDs = other.UUIDs;
+@@ -140,5 +140,6 @@ namespace BLEPP
+ 		AdvertisingResponse(AdvertisingResponse&& other) noexcept
+ 			: address(std::move(other.address))
++			, address_type(other.address_type)
+ 			, type(other.type)
+ 			, rssi(other.rssi)
+ 			, UUIDs(std::move(other.UUIDs))
+@@ -160,6 +160,7 @@ namespace BLEPP
+ 		AdvertisingResponse& operator=(AdvertisingResponse&& other) noexcept {
+ 			if (this != &other) {
+ 				address = std::move(other.address);
++				address_type = other.address_type;
+ 				type = other.type;
+ 				rssi = other.rssi;
+ 				UUIDs = std::move(other.UUIDs);
+diff --git a/src/lescan.cc b/src/lescan.cc
+index 0000000..0000000 100644
+--- a/src/lescan.cc
++++ b/src/lescan.cc
+@@ -396,4 +396,5 @@ namespace BLEPP
+ 				AdvertisingResponse rsp;
+ 				rsp.address = address;
++				rsp.address_type = address_type;
+ 				rsp.type = event_type;
+ 				rsp.rssi = rssi;

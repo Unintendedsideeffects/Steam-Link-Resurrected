@@ -1,0 +1,34 @@
+diff --git a/plugins/bluetooth_proxy/gatt_proxy.cpp b/plugins/bluetooth_proxy/gatt_proxy.cpp
+--- a/plugins/bluetooth_proxy/gatt_proxy.cpp
++++ b/plugins/bluetooth_proxy/gatt_proxy.cpp
+@@ -10,6 +10,7 @@
+ 
+ #include <condition_variable>
+ #include <atomic>
++#include <chrono>
+ #include <cstdint>
+ #include <cstdio>
+ #include <cstring>
+@@ -510,6 +511,8 @@
+             bool public_address = (attempt == 0 ? address_type_ : (address_type_ == 0 ? 1U : 0U)) == 0;
+             std::fprintf(stderr, "[bluetooth_proxy] GATT connect attempt %d using %s address\n",
+                          attempt + 1, public_address ? "public" : "random");
++        const auto connect_deadline = std::chrono::steady_clock::now() +
++                                      std::chrono::seconds(12);
+             try {
+                 gatt_.connect(address_string(address_), false, public_address);
+             } catch (const std::exception &error) {
+@@ -521,6 +524,13 @@
+ 
+         while (!stop_) {
+             if (gatt_.socket() < 0) break;
++            if (gatt_.wait_on_write() &&
++                std::chrono::steady_clock::now() >= connect_deadline) {
++                std::fprintf(stderr, "[bluetooth_proxy] GATT connect attempt %d timed out\n",
++                             attempt + 1);
++                gatt_.close();
++                break;
++            }
+ 
+             Command command;
+             bool have_command = false;

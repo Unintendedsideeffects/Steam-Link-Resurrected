@@ -1,0 +1,160 @@
+--- a/plugins/bluetooth_proxy/bluetooth_proxy_plugin.c
++++ b/plugins/bluetooth_proxy/bluetooth_proxy_plugin.c
+@@ -32,6 +32,8 @@
+ typedef struct {
+     ble_scanner_t *scanner;
+     bool subscribed;
++    bool client_subscribed[ESPHOME_MAX_CLIENTS];
++    unsigned subscriber_count;
+ 
+     /* BLE advertisement batching */
+     esphome_ble_advertisements_response_t ble_batch;
+@@ -201,21 +203,29 @@
+ /**
+  * Start BLE scanning (internal helper)
+  */
+-static int start_ble_scanning(bluetooth_proxy_state_t *state) {
++static int start_ble_scanning(bluetooth_proxy_state_t *state, int client_id) {
+     if (!state || !state->scanner) {
+         return -1;
+     }
+ 
+-    if (state->subscribed) {
++    if (client_id < 0 || client_id >= ESPHOME_MAX_CLIENTS) {
++        return -1;
++    }
++
++    if (state->client_subscribed[client_id]) {
+         return 0;  /* Already scanning */
+     }
+ 
+-    if (ble_scanner_start(state->scanner) < 0) {
+-        fprintf(stderr, "[bluetooth_proxy] Failed to start BLE scanning\n");
+-        return -1;
++    if (state->subscriber_count == 0) {
++        if (ble_scanner_start(state->scanner) < 0) {
++            fprintf(stderr, "[bluetooth_proxy] Failed to start BLE scanning\n");
++            return -1;
++        }
++        state->subscribed = true;
+     }
+ 
+-    state->subscribed = true;
++    state->client_subscribed[client_id] = true;
++    state->subscriber_count++;
+     printf("[bluetooth_proxy] BLE scanning started\n");
+     return 0;
+ }
+@@ -223,15 +233,20 @@
+ /**
+  * Stop BLE scanning (internal helper)
+  */
+-static int stop_ble_scanning(bluetooth_proxy_state_t *state) {
++static int stop_ble_scanning(bluetooth_proxy_state_t *state, int client_id) {
+     if (!state || !state->scanner) {
+         return 0;
+     }
+ 
+-    if (!state->subscribed) {
++    if (client_id < 0 || client_id >= ESPHOME_MAX_CLIENTS ||
++        !state->client_subscribed[client_id]) {
+         return 0;  /* Already stopped */
+     }
+ 
++    state->client_subscribed[client_id] = false;
++    if (state->subscriber_count > 0) state->subscriber_count--;
++    if (state->subscriber_count > 0) return 0;
++
+     if (ble_scanner_stop(state->scanner) < 0) {
+         fprintf(stderr, "[bluetooth_proxy] Failed to stop BLE scanning\n");
+         return -1;
+@@ -349,13 +364,15 @@
+ }
+ 
+ static void bluetooth_proxy_client_disconnected(esphome_plugin_context_t *ctx, int client_id) {
++    bluetooth_proxy_state_t *state = (bluetooth_proxy_state_t *)ctx->plugin_data;
++    if (state) stop_ble_scanning(state, client_id);
+     gatt_proxy_client_disconnected(ctx, client_id);
+ }
+ 
+ /**
+  * Handle subscribe to BLE advertisements request
+  */
+-static int handle_subscribe_ble_advertisements(esphome_plugin_context_t *ctx) {
++static int handle_subscribe_ble_advertisements(esphome_plugin_context_t *ctx, int client_id) {
+     bluetooth_proxy_state_t *state = (bluetooth_proxy_state_t *)ctx->plugin_data;
+ 
+     printf("[bluetooth_proxy] Received SUBSCRIBE_BLUETOOTH_LE_ADVERTISEMENTS_REQUEST\n");
+@@ -376,13 +393,13 @@
+         return 0;
+     }
+ 
+-    return start_ble_scanning(state);
++    return start_ble_scanning(state, client_id);
+ }
+ 
+ /**
+  * Handle unsubscribe from BLE advertisements request
+  */
+-static int handle_unsubscribe_ble_advertisements(esphome_plugin_context_t *ctx) {
++static int handle_unsubscribe_ble_advertisements(esphome_plugin_context_t *ctx, int client_id) {
+     bluetooth_proxy_state_t *state = (bluetooth_proxy_state_t *)ctx->plugin_data;
+ 
+     printf("[bluetooth_proxy] Received UNSUBSCRIBE_BLUETOOTH_LE_ADVERTISEMENTS_REQUEST\n");
+@@ -391,13 +408,14 @@
+         return 0; /* Nothing to do */
+     }
+ 
+-    return stop_ble_scanning(state);
++    return stop_ble_scanning(state, client_id);
+ }
+ 
+ /**
+  * Handle BLE scanning switch command
+  */
+ static int handle_ble_scanning_switch_command(esphome_plugin_context_t *ctx,
++                                               int client_id,
+                                                const uint8_t *data, size_t len) {
+     bluetooth_proxy_state_t *state = (bluetooth_proxy_state_t *)ctx->plugin_data;
+ 
+@@ -427,11 +445,11 @@
+     if (cmd.state) {
+         /* Enable scanning */
+         if (state->scanner) {
+-            start_ble_scanning(state);
++            start_ble_scanning(state, client_id);
+         }
+     } else {
+         /* Disable scanning */
+-        stop_ble_scanning(state);
++        stop_ble_scanning(state, client_id);
+     }
+ 
+     /* Report the new state back to Home Assistant */
+@@ -448,20 +466,18 @@
+                                            uint32_t msg_type,
+                                            const uint8_t *data,
+                                            size_t len) {
+-    (void)client_id;  /* Currently unused, but available for future use */
+-
+     int gatt_result = gatt_proxy_handle_message(ctx, client_id, msg_type, data, len);
+     if (gatt_result == 0) return 0;
+ 
+     switch (msg_type) {
+     case ESPHOME_MSG_SUBSCRIBE_BLUETOOTH_LE_ADVERTISEMENTS_REQUEST:
+-        return handle_subscribe_ble_advertisements(ctx);
++        return handle_subscribe_ble_advertisements(ctx, client_id);
+ 
+     case ESPHOME_MSG_UNSUBSCRIBE_BLUETOOTH_LE_ADVERTISEMENTS_REQUEST:
+-        return handle_unsubscribe_ble_advertisements(ctx);
++        return handle_unsubscribe_ble_advertisements(ctx, client_id);
+ 
+     case ESPHOME_MSG_SWITCH_COMMAND_REQUEST:
+-        return handle_ble_scanning_switch_command(ctx, data, len);
++        return handle_ble_scanning_switch_command(ctx, client_id, data, len);
+ 
+     /* Other Bluetooth messages could be handled here in the future:
+      * - BLUETOOTH_DEVICE_REQUEST (connect to device)
+      * - BLUETOOTH_GATT_* (GATT operations)
+      * etc.
+      */

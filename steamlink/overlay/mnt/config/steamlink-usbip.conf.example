@@ -1,0 +1,2 @@
+# Copy to /mnt/config/steamlink-usbip.conf during provisioning.
+STEAMLINK_HOSTNAME=SteamLink

@@ -1,0 +1,8 @@
+77dfcc4be4b4e31e0b1350307a8e40572924a86da795a1e5c551404fac93b973  steamlink/overlay/mnt/config/ble-proxy/esphome-linux
+08ca8910dc6c5a1d2e62dce6e41977a3a64dda46121b71c5406ec52038f102d8  steamlink/overlay/mnt/config/usbip/bin/usbip
+a69f3bc2432e5993a04455fc9e9e838d7e194bfc076f99447287598e53e30f47  steamlink/overlay/mnt/config/usbip/bin/usbipd
+2014c0217808d3e6467b20eb59e47bf4640d3b4b10182e7f864ae1c6e69b7012  steamlink/overlay/mnt/config/usbip/lib/libsysfs.so.2.0.1
+4fde31a4d5524e34c0ebfc4ba5ed50154ba9e7f27016d53495cbb739507a33b3  steamlink/overlay/mnt/config/usbip/lib/libusbip.so.0.0.1
+14f69ea7c89376224ad7dc9fee557e1cc2e408632dac3d6604c120f6b4a51663  steamlink/overlay/mnt/config/usbip/modules/usbip-core.ko
+440055d1c49499a82e4f68c85cc783d4fd820ab7ae1cc5d0e5fd38bb2d5e47ab  steamlink/overlay/mnt/config/usbip/modules/usbip-host.ko
+ff7967b3e6cba6426cfb55c533918a81a0bfade58d55c566576e5d3200745932  steamlink/overlay/mnt/config/usbip/modules/vhci-hcd.ko

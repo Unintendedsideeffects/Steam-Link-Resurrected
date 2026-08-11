@@ -1,0 +1,4 @@
+#!/bin/sh
+BASE=/mnt/config/usbip
+export LD_LIBRARY_PATH="$BASE/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+exec "$BASE/bin/usbipd" "$@"

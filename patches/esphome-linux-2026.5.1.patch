@@ -1,0 +1,25 @@
+diff --git a/src/main.c b/src/main.c
+--- a/src/main.c
++++ b/src/main.c
+@@ -129,7 +129,7 @@ int main(int argc, char *argv[]) {
+     memset(&config, 0, sizeof(config));
+ 
+     snprintf(config.device_name, sizeof(config.device_name), "%s", hostname);
+     snprintf(config.mac_address, sizeof(config.mac_address), "%s", mac_address);
+-    snprintf(config.esphome_version, sizeof(config.esphome_version), "2025.12.0");
++    snprintf(config.esphome_version, sizeof(config.esphome_version), "2026.5.1");
+     snprintf(config.model, sizeof(config.model), "ESPHome Linux");
+     snprintf(config.manufacturer, sizeof(config.manufacturer), "Thingino");
+     snprintf(config.friendly_name, sizeof(config.friendly_name), "%s", hostname);
+diff --git a/src/esphome_api.c b/src/esphome_api.c
+--- a/src/esphome_api.c
++++ b/src/esphome_api.c
+@@ -215,7 +215,7 @@ static void handle_hello_request(esphome_api_server_t *server,
+     memset(&response, 0, sizeof(response));
+ 
+     response.api_version_major = 1;
+-    response.api_version_minor = 12;
++    response.api_version_minor = 14;
+     snprintf(response.server_info, sizeof(response.server_info),
+              "%s (Thingino BLE Proxy v1.0)", server->config.device_name);
+     strncpy(response.name, server->config.device_name, sizeof(response.name) - 1);

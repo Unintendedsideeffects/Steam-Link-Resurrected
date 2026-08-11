@@ -1,0 +1,16 @@
+diff --git a/plugins/bluetooth_proxy/ble_scanner.cpp b/plugins/bluetooth_proxy/ble_scanner.cpp
+index 0000000..0000000 100644
+--- a/plugins/bluetooth_proxy/ble_scanner.cpp
++++ b/plugins/bluetooth_proxy/ble_scanner.cpp
+@@ -68,8 +68,8 @@ static void process_advertisement(ble_scanner_t *scanner, const BLEPP::AdvertisingResponse &ad) {
+ 
+     advert.rssi = ad.rssi;
+ 
+-    // Determine address type (random if contains local/private, public otherwise)
+-    // This is a simplification - libblepp doesn't directly expose address type
+-    advert.address_type = 0; // Default to public
++    // Preserve the HCI address type; static/random devices such as the Nanoleaf
++    // Remote cannot be reached when their address is reported as public.
++    advert.address_type = ad.address_type;
+ 
+     // Use raw_packet data directly from libblepp - this contains the actual

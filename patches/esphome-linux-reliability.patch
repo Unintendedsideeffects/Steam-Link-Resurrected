@@ -1,0 +1,551 @@
+--- a/src/esphome_api.c	2026-08-07 09:35:32.315417126 +0200
++++ b/src/esphome_api.c	2026-08-07 09:50:54.184105500 +0200
+@@ -16,10 +16,21 @@
+ #include <netinet/tcp.h>
+ #include <arpa/inet.h>
+ #include <time.h>
++#include <sys/time.h>
+ 
+ #define RECV_BUFFER_SIZE 4096
+ #define SEND_BUFFER_SIZE 8192
+ #define LOG_PREFIX "[esphome-api] "
++#define CLIENT_IDLE_TIMEOUT_SECONDS 60
++#define ACCEPT_RATE_WINDOW_SECONDS 10
++#define ACCEPT_RATE_LIMIT 20
++
++static bool api_verbose_enabled(void) {
++    const char *verbose = getenv("ESPHOME_API_VERBOSE");
++    return verbose && strcmp(verbose, "1") == 0;
++}
++
++#define printf(...) do { if (api_verbose_enabled()) fprintf(stdout, __VA_ARGS__); } while (0)
+ 
+ /**
+  * Client connection state
+@@ -48,6 +59,14 @@
+     /* Client connections */
+     client_connection_t clients[ESPHOME_MAX_CLIENTS];
+     pthread_mutex_t clients_mutex;
++    unsigned long accepted_clients;
++    unsigned long rejected_clients;
++    unsigned long thread_failures;
++    unsigned long active_clients;
++    time_t stats_window;
++    time_t rate_limit_window;
++    struct in_addr rate_limit_addr;
++    unsigned rate_limit_count;
+ };
+ 
+ /* -----------------------------------------------------------------
+@@ -78,6 +97,41 @@
+     pthread_mutex_destroy(&client->send_mutex);
+ }
+ 
++static void log_client_stats(esphome_api_server_t *server, const char *reason) {
++    time_t now = time(NULL);
++    if (server->stats_window != 0 && now - server->stats_window < 30 && reason == NULL) {
++        return;
++    }
++    server->stats_window = now;
++    fprintf(stderr, LOG_PREFIX
++            "stats reason=%s accepted=%lu rejected=%lu thread_failures=%lu active=%lu\n",
++            reason ? reason : "interval", server->accepted_clients,
++            server->rejected_clients, server->thread_failures,
++            server->active_clients);
++}
++
++static bool accept_rate_limited(esphome_api_server_t *server,
++                                const struct sockaddr_in *client_addr) {
++    time_t now = time(NULL);
++    if (server->rate_limit_window == 0 ||
++        now - server->rate_limit_window > ACCEPT_RATE_WINDOW_SECONDS ||
++        server->rate_limit_addr.s_addr != client_addr->sin_addr.s_addr) {
++        server->rate_limit_window = now;
++        server->rate_limit_addr = client_addr->sin_addr;
++        server->rate_limit_count = 0;
++    }
++    server->rate_limit_count++;
++    return server->rate_limit_count > ACCEPT_RATE_LIMIT;
++}
++
++static void configure_client_socket(int fd) {
++    int flag = 1;
++    struct timeval timeout = {CLIENT_IDLE_TIMEOUT_SECONDS, 0};
++    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
++    setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &flag, sizeof(flag));
++    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
++}
++
+ /* -----------------------------------------------------------------
+  * Message type names for logging
+  * ----------------------------------------------------------------- */
+@@ -508,7 +562,11 @@
+     pthread_mutex_lock(&server->clients_mutex);
+     client_close(client);
+     client->thread_running = false;
++    if (server->active_clients > 0) {
++        server->active_clients--;
++    }
+     pthread_mutex_unlock(&server->clients_mutex);
++    esphome_plugin_client_disconnected_all(server, &server->config, client_id);
+ 
+     return NULL;
+ }
+@@ -531,9 +589,16 @@
+             continue;
+         }
+ 
+-        /* Set TCP_NODELAY for low latency */
+-        int flag = 1;
+-        setsockopt(client_fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
++        configure_client_socket(client_fd);
++
++        if (accept_rate_limited(server, &client_addr)) {
++            server->rejected_clients++;
++            fprintf(stderr, LOG_PREFIX "rate limiting client %s\n",
++                    inet_ntoa(client_addr.sin_addr));
++            close(client_fd);
++            log_client_stats(server, "rate-limit");
++            continue;
++        }
+ 
+         printf(LOG_PREFIX "Client connected from %s:%d\n",
+                inet_ntoa(client_addr.sin_addr),
+@@ -543,7 +608,7 @@
+         pthread_mutex_lock(&server->clients_mutex);
+         int slot = -1;
+         for (int i = 0; i < ESPHOME_MAX_CLIENTS; i++) {
+-            if (server->clients[i].fd < 0) {
++            if (server->clients[i].fd < 0 && !server->clients[i].thread_running) {
+                 server->clients[i].fd = client_fd;
+                 slot = i;
+                 break;
+@@ -552,8 +617,10 @@
+         pthread_mutex_unlock(&server->clients_mutex);
+ 
+         if (slot < 0) {
++            server->rejected_clients++;
+             fprintf(stderr, LOG_PREFIX "Max clients reached, rejecting connection\n");
+             close(client_fd);
++            log_client_stats(server, "max-clients");
+             continue;
+         }
+ 
+@@ -562,12 +629,22 @@
+         client->server = server;
+         client->thread_running = true;
+         client->addr = client_addr;  /* Store client address */
++        server->accepted_clients++;
++        server->active_clients++;
+ 
+         if (pthread_create(&client->thread, NULL, client_thread_func, client) != 0) {
++            server->thread_failures++;
++            if (server->active_clients > 0) {
++                server->active_clients--;
++            }
+             fprintf(stderr, LOG_PREFIX "Failed to create client thread\n");
+             pthread_mutex_lock(&server->clients_mutex);
+             client_close(client);
++            client->thread_running = false;
+             pthread_mutex_unlock(&server->clients_mutex);
++            log_client_stats(server, "thread-create");
++        } else {
++            pthread_detach(client->thread);
+         }
+     }
+ 
+@@ -668,12 +745,21 @@
+     }
+     pthread_mutex_unlock(&server->clients_mutex);
+ 
+-    /* Now wait for all client threads to finish (they should exit quickly now) */
+-    for (int i = 0; i < ESPHOME_MAX_CLIENTS; i++) {
+-        if (server->clients[i].thread_running) {
+-            pthread_join(server->clients[i].thread, NULL);
++    /* Client threads are detached; wait briefly for their cleanup callbacks. */
++    for (int attempt = 0; attempt < 20; attempt++) {
++        bool active = false;
++        pthread_mutex_lock(&server->clients_mutex);
++        for (int i = 0; i < ESPHOME_MAX_CLIENTS; i++) {
++            if (server->clients[i].thread_running) {
++                active = true;
++                break;
++            }
+         }
++        pthread_mutex_unlock(&server->clients_mutex);
++        if (!active) break;
++        usleep(100000);
+     }
++    log_client_stats(server, "stop");
+ }
+ 
+ void esphome_api_free(esphome_api_server_t *server) {
+--- a/src/esphome_proto.c	2026-08-07 09:35:32.323459751 +0200
++++ b/src/esphome_proto.c	2026-08-07 09:50:34.522804039 +0200
+@@ -6,6 +6,7 @@
+ #include "include/esphome_proto.h"
+ #include <string.h>
+ #include <stdio.h>
++#include <stdlib.h>
+ 
+ /* -----------------------------------------------------------------
+  * Buffer management
+@@ -387,16 +388,20 @@
+                                           const esphome_ble_advertisements_response_t *msg) {
+     pb_buffer_t pb;
+     pb_buffer_init_write(&pb, buf, size);
++    const char *verbose_env = getenv("BLE_PROXY_VERBOSE");
++    bool verbose = verbose_env && strcmp(verbose_env, "1") == 0;
+ 
+     for (size_t i = 0; i < msg->count && i < ESPHOME_MAX_ADV_BATCH; i++) {
+         const esphome_ble_advertisement_t *adv = &msg->advertisements[i];
+ 
+-        printf("[esphome-proto] Encoding advertisement %zu: address=%02X:%02X:%02X:%02X:%02X:%02X, rssi=%d, type=%u, data_len=%zu\n",
+-               i,
+-               (uint8_t)(adv->address >> 40), (uint8_t)(adv->address >> 32),
+-               (uint8_t)(adv->address >> 24), (uint8_t)(adv->address >> 16),
+-               (uint8_t)(adv->address >> 8), (uint8_t)(adv->address),
+-               adv->rssi, adv->address_type, adv->data_len);
++        if (verbose) {
++            printf("[esphome-proto] Encoding advertisement %zu: address=%02X:%02X:%02X:%02X:%02X:%02X, rssi=%d, type=%u, data_len=%zu\n",
++                   i,
++                   (uint8_t)(adv->address >> 40), (uint8_t)(adv->address >> 32),
++                   (uint8_t)(adv->address >> 24), (uint8_t)(adv->address >> 16),
++                   (uint8_t)(adv->address >> 8), (uint8_t)(adv->address),
++                   adv->rssi, adv->address_type, adv->data_len);
++        }
+ 
+         /* Encode repeated message: tag + length + fields */
+         uint8_t adv_buf[256];
+@@ -405,44 +410,46 @@
+ 
+         /* Field 1: address (uint64 varint) */
+         if (!pb_encode_uint64(&adv_pb, 1, adv->address)) {
+-            printf("[esphome-proto] ERROR: Failed to encode address field\n");
++            fprintf(stderr, "[esphome-proto] ERROR: Failed to encode address field\n");
+             return 0;
+         }
+-        printf("[esphome-proto] After encoding address: pos=%zu\n", adv_pb.pos);
++        if (verbose) printf("[esphome-proto] After encoding address: pos=%zu\n", adv_pb.pos);
+ 
+         /* Field 2: rssi (sint32) */
+         if (!pb_encode_sint32(&adv_pb, 2, adv->rssi)) {
+-            printf("[esphome-proto] ERROR: Failed to encode RSSI field\n");
++            fprintf(stderr, "[esphome-proto] ERROR: Failed to encode RSSI field\n");
+             return 0;
+         }
+-        printf("[esphome-proto] After encoding RSSI: pos=%zu\n", adv_pb.pos);
++        if (verbose) printf("[esphome-proto] After encoding RSSI: pos=%zu\n", adv_pb.pos);
+ 
+         /* Field 3: address_type (uint32) */
+         if (!pb_encode_uint32(&adv_pb, 3, adv->address_type)) {
+-            printf("[esphome-proto] ERROR: Failed to encode address_type field\n");
++            fprintf(stderr, "[esphome-proto] ERROR: Failed to encode address_type field\n");
+             return 0;
+         }
+-        printf("[esphome-proto] After encoding address_type: pos=%zu\n", adv_pb.pos);
++        if (verbose) printf("[esphome-proto] After encoding address_type: pos=%zu\n", adv_pb.pos);
+ 
+         /* Field 4: data (bytes) */
+         if (!pb_encode_bytes(&adv_pb, 4, adv->data, adv->data_len)) {
+-            printf("[esphome-proto] ERROR: Failed to encode data field\n");
++            fprintf(stderr, "[esphome-proto] ERROR: Failed to encode data field\n");
+             return 0;
+         }
+-        printf("[esphome-proto] After encoding data: pos=%zu\n", adv_pb.pos);
++        if (verbose) printf("[esphome-proto] After encoding data: pos=%zu\n", adv_pb.pos);
+ 
+         if (adv_pb.error) {
+-            printf("[esphome-proto] ERROR: Buffer error flag set\n");
++            fprintf(stderr, "[esphome-proto] ERROR: Buffer error flag set\n");
+             return 0;
+         }
+ 
+         /* Hex dump of encoded advertisement */
+-        printf("[esphome-proto] Encoded advertisement (%zu bytes): ", adv_pb.pos);
+-        for (size_t j = 0; j < adv_pb.pos && j < 50; j++) {
+-            printf("%02x ", adv_buf[j]);
++        if (verbose) {
++            printf("[esphome-proto] Encoded advertisement (%zu bytes): ", adv_pb.pos);
++            for (size_t j = 0; j < adv_pb.pos && j < 50; j++) {
++                printf("%02x ", adv_buf[j]);
++            }
++            if (adv_pb.pos > 50) printf("...");
++            printf("\n");
+         }
+-        if (adv_pb.pos > 50) printf("...");
+-        printf("\n");
+ 
+         /* Encode the advertisement as a repeated message (field 1) */
+         pb_encode_varint(&pb, PB_FIELD_TAG(1, PB_WIRE_TYPE_LENGTH));
+--- a/src/include/esphome_plugin.h	2026-08-07 09:35:32.315844964 +0200
++++ b/src/include/esphome_plugin.h	2026-08-07 09:38:52.232029609 +0200
+@@ -89,6 +89,10 @@
+  */
+ typedef void (*esphome_plugin_cleanup_fn)(esphome_plugin_context_t *ctx);
+ 
++/** Called when an API client disconnects so plugins can release client state. */
++typedef void (*esphome_plugin_client_disconnected_fn)(
++    esphome_plugin_context_t *ctx, int client_id);
++
+ /**
+  * Plugin message handler callback
+  *
+@@ -176,6 +180,7 @@
+     const char *version;                     /* Plugin version */
+     esphome_plugin_init_fn init;             /* Initialization callback */
+     esphome_plugin_cleanup_fn cleanup;       /* Cleanup callback */
++    esphome_plugin_client_disconnected_fn client_disconnected; /* Client cleanup */
+     esphome_plugin_msg_handler_fn handle_message; /* Message handler */
+     esphome_plugin_configure_device_info_fn configure_device_info; /* Device info config (optional) */
+     esphome_plugin_list_entities_fn list_entities; /* Entity registration (optional) */
+@@ -267,12 +272,14 @@
+  */
+ #define ESPHOME_PLUGIN_REGISTER(var_name, plugin_name, plugin_version, \
+                                  init_fn, cleanup_fn, handle_msg_fn, \
+-                                 config_device_info_fn, list_entities_fn, subscribe_states_fn) \
++                                 config_device_info_fn, list_entities_fn, subscribe_states_fn, \
++                                 client_disconnected_fn) \
+     static esphome_plugin_t var_name = { \
+         .name = plugin_name, \
+         .version = plugin_version, \
+         .init = init_fn, \
+         .cleanup = cleanup_fn, \
++        .client_disconnected = client_disconnected_fn, \
+         .handle_message = handle_msg_fn, \
+         .configure_device_info = config_device_info_fn, \
+         .list_entities = list_entities_fn, \
+--- a/src/include/esphome_plugin_internal.h	2026-08-07 09:35:32.315844964 +0200
++++ b/src/include/esphome_plugin_internal.h	2026-08-07 09:39:13.637358070 +0200
+@@ -43,6 +43,10 @@
+ void esphome_plugin_cleanup_all(esphome_api_server_t *server,
+                                 const esphome_device_config_t *config);
+ 
++void esphome_plugin_client_disconnected_all(esphome_api_server_t *server,
++                                             const esphome_device_config_t *config,
++                                             int client_id);
++
+ /**
+  * Allow all plugins to configure device info
+  *
+--- a/src/esphome_plugin.c	2026-08-07 09:35:32.315665172 +0200
++++ b/src/esphome_plugin.c	2026-08-07 09:39:13.638358085 +0200
+@@ -99,6 +99,20 @@
+     }
+ }
+ 
++void esphome_plugin_client_disconnected_all(
++    esphome_api_server_t *server,
++    const esphome_device_config_t *config,
++    int client_id)
++{
++    (void)server;
++    (void)config;
++    for (esphome_plugin_t *plugin = plugins_head; plugin != NULL; plugin = plugin->next) {
++        if (plugin->client_disconnected && plugin->ctx) {
++            plugin->client_disconnected(plugin->ctx, client_id);
++        }
++    }
++}
++
+ /**
+  * Configure device info with all plugins
+  * Calls each plugin's configure_device_info callback if present
+--- a/plugins/ota/ota_plugin.cpp	2026-08-07 09:35:32.323459751 +0200
++++ b/plugins/ota/ota_plugin.cpp	2026-08-07 09:39:13.638358085 +0200
+@@ -244,6 +244,6 @@
+ static int ota_init(esphome_plugin_context_t *ctx) { ctx->plugin_data = new OtaServer(); return 0; }
+ static void ota_cleanup(esphome_plugin_context_t *ctx) { delete static_cast<OtaServer *>(ctx->plugin_data); ctx->plugin_data = nullptr; }
+ 
+-ESPHOME_PLUGIN_REGISTER(ota_plugin, "ESPHomeOTA", "1.0.0", ota_init, ota_cleanup, nullptr, nullptr, nullptr, nullptr);
++ESPHOME_PLUGIN_REGISTER(ota_plugin, "ESPHomeOTA", "1.0.0", ota_init, ota_cleanup, nullptr, nullptr, nullptr, nullptr, nullptr);
+ 
+ } // namespace
+--- a/plugins/bluetooth_proxy/gatt_proxy.h	2026-08-07 09:35:32.323400493 +0200
++++ b/plugins/bluetooth_proxy/gatt_proxy.h	2026-08-07 09:39:40.302767247 +0200
+@@ -12,6 +12,7 @@
+ 
+ int gatt_proxy_init(esphome_plugin_context_t *ctx);
+ void gatt_proxy_cleanup(esphome_plugin_context_t *ctx);
++void gatt_proxy_client_disconnected(esphome_plugin_context_t *ctx, int client_id);
+ int gatt_proxy_handle_message(esphome_plugin_context_t *ctx,
+                               int client_id,
+                               uint32_t msg_type,
+--- a/plugins/bluetooth_proxy/gatt_proxy.cpp	2026-08-07 09:35:32.323379864 +0200
++++ b/plugins/bluetooth_proxy/gatt_proxy.cpp	2026-08-07 09:45:25.183059380 +0200
+@@ -290,6 +290,7 @@
+     bool pending_notify_ = false;
+     std::atomic<bool> connected_{false};
+     std::atomic<bool> disconnected_reported_{false};
++    std::atomic<int32_t> disconnect_error_{0};
+ 
+     void enqueue(Command command) {
+         std::lock_guard<std::mutex> lock(command_mutex_);
+@@ -471,6 +472,7 @@
+              * reason reference. Keep the proxy alive and report a generic
+              * transport error rather than dereferencing it. */
+             connected_.store(false);
++            disconnect_error_.store(EIO);
+         };
+         gatt_.cb_read = [this](Characteristic &characteristic, const PDUReadResponse &response) {
+             auto value = response.value();
+@@ -565,7 +567,8 @@
+             if (connected_once || stop_) break;
+             if (attempt == 0) usleep(100000);
+         }
+-        send_connection(false, EIO);
++        int32_t error = disconnect_error_.load();
++        send_connection(false, error == 0 ? EIO : error);
+     }
+ };
+ 
+@@ -598,6 +601,39 @@
+         return -1;
+     }
+ 
++    void send_pairing_result(int client_id, uint64_t address, bool paired, int32_t error) {
++        uint8_t buffer[64];
++        pb_buffer_t pb;
++        pb_buffer_init_write(&pb, buffer, sizeof(buffer));
++        pb_encode_uint64(&pb, 1, address);
++        pb_encode_bool(&pb, 2, paired);
++        if (error != 0) pb_encode_uint32(&pb, 3, static_cast<uint32_t>(error));
++        if (!pb.error) esphome_plugin_send_message_to_client(
++            ctx_, client_id, ESPHOME_MSG_BLUETOOTH_DEVICE_PAIRING_RESPONSE, buffer, pb.pos);
++    }
++
++    void send_unpairing_result(int client_id, uint64_t address, bool success, int32_t error) {
++        uint8_t buffer[64];
++        pb_buffer_t pb;
++        pb_buffer_init_write(&pb, buffer, sizeof(buffer));
++        pb_encode_uint64(&pb, 1, address);
++        pb_encode_bool(&pb, 2, success);
++        if (error != 0) pb_encode_uint32(&pb, 3, static_cast<uint32_t>(error));
++        if (!pb.error) esphome_plugin_send_message_to_client(
++            ctx_, client_id, ESPHOME_MSG_BLUETOOTH_DEVICE_UNPAIRING_RESPONSE, buffer, pb.pos);
++    }
++
++    void send_cache_result(int client_id, uint64_t address, bool success, int32_t error) {
++        uint8_t buffer[64];
++        pb_buffer_t pb;
++        pb_buffer_init_write(&pb, buffer, sizeof(buffer));
++        pb_encode_uint64(&pb, 1, address);
++        pb_encode_bool(&pb, 2, success);
++        if (error != 0) pb_encode_uint32(&pb, 3, static_cast<uint32_t>(error));
++        if (!pb.error) esphome_plugin_send_message_to_client(
++            ctx_, client_id, ESPHOME_MSG_BLUETOOTH_DEVICE_CLEAR_CACHE_RESPONSE, buffer, pb.pos);
++    }
++
+ private:
+     esphome_plugin_context_t *ctx_;
+     std::mutex mutex_;
+@@ -611,6 +647,23 @@
+         uint32_t address_type = 0;
+         if (!decode_device_request(data, len, &address, &request_type,
+                                    &has_address_type, &address_type)) return -1;
++        if (request_type == 2) {
++            std::fprintf(stderr, "[bluetooth_proxy] pairing unsupported for %016llX\n",
++                         static_cast<unsigned long long>(address));
++            send_pairing_result(client_id, address, false, EOPNOTSUPP);
++            return 0;
++        }
++        if (request_type == 3) {
++            std::fprintf(stderr, "[bluetooth_proxy] unpairing unsupported for %016llX\n",
++                         static_cast<unsigned long long>(address));
++            send_unpairing_result(client_id, address, false, EOPNOTSUPP);
++            return 0;
++        }
++        if (request_type == 6) {
++            /* No remote service cache is retained by this proxy. */
++            send_cache_result(client_id, address, true, 0);
++            return 0;
++        }
+         if (request_type == 1) {
+             std::shared_ptr<Connection> connection;
+             {
+@@ -701,6 +754,27 @@
+         return 0;
+     }
+ 
++public:
++    void client_disconnected(int client_id) {
++        std::vector<std::shared_ptr<Connection>> stale;
++        {
++            std::lock_guard<std::mutex> lock(mutex_);
++            for (auto it = connections_.begin(); it != connections_.end();) {
++                if (it->second->client_id() == client_id) {
++                    stale.push_back(it->second);
++                    it = connections_.erase(it);
++                } else {
++                    ++it;
++                }
++            }
++        }
++        for (auto &connection : stale) connection->stop();
++        if (!stale.empty()) {
++            std::fprintf(stderr, "[bluetooth_proxy] released %zu GATT connection(s) for client %d\n",
++                         stale.size(), client_id);
++        }
++    }
++
+     void stop_all() {
+         std::map<uint64_t, std::shared_ptr<Connection>> connections;
+         {
+@@ -733,6 +807,12 @@
+     }
+ }
+ 
++extern "C" void gatt_proxy_client_disconnected(esphome_plugin_context_t *ctx, int client_id) {
++    std::lock_guard<std::mutex> lock(managers_mutex);
++    auto it = managers.find(ctx);
++    if (it != managers.end()) it->second->client_disconnected(client_id);
++}
++
+ extern "C" int gatt_proxy_handle_message(esphome_plugin_context_t *ctx,
+                                            int client_id, uint32_t msg_type,
+                                            const uint8_t *data, size_t len) {
+--- a/plugins/bluetooth_proxy/bluetooth_proxy_plugin.c	2026-08-07 09:35:32.323292037 +0200
++++ b/plugins/bluetooth_proxy/bluetooth_proxy_plugin.c	2026-08-07 09:41:04.252055436 +0200
+@@ -39,6 +39,7 @@
+     struct timespec last_flush;
+     pthread_t flush_thread;
+     bool flush_thread_running;
++    time_t last_batch_log;
+ 
+     /* Context reference (for flush thread) */
+     esphome_plugin_context_t *ctx;
+@@ -79,7 +80,14 @@
+         esphome_plugin_send_message(ctx, ESPHOME_MSG_BLUETOOTH_LE_RAW_ADVERTISEMENTS_RESPONSE,
+                                     encode_buf, len);
+ 
+-        printf("[bluetooth_proxy] Sent BLE batch: %zu advertisements\n", state->ble_batch.count);
++        time_t now = time(NULL);
++        const char *verbose = getenv("BLE_PROXY_VERBOSE");
++        if ((verbose && strcmp(verbose, "1") == 0) ||
++            state->last_batch_log == 0 || now - state->last_batch_log >= 60) {
++            fprintf(stderr, "[bluetooth_proxy] sent BLE batch count=%zu\n",
++                    state->ble_batch.count);
++            state->last_batch_log = now;
++        }
+     }
+ 
+     /* Reset batch */
+@@ -340,6 +348,10 @@
+ 
+ }
+ 
++static void bluetooth_proxy_client_disconnected(esphome_plugin_context_t *ctx, int client_id) {
++    gatt_proxy_client_disconnected(ctx, client_id);
++}
++
+ /**
+  * Handle subscribe to BLE advertisements request
+  */
+@@ -536,5 +548,6 @@
+     bluetooth_proxy_handle_message,
+     bluetooth_proxy_configure_device_info,
+     bluetooth_proxy_list_entities,
+-    bluetooth_proxy_subscribe_states
++    bluetooth_proxy_subscribe_states,
++    bluetooth_proxy_client_disconnected
+ );

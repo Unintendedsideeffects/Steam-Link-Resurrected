@@ -1,0 +1,25 @@
+diff --git a/plugins/bluetooth_proxy/ble_scanner.cpp b/plugins/bluetooth_proxy/ble_scanner.cpp
+--- a/plugins/bluetooth_proxy/ble_scanner.cpp
++++ b/plugins/bluetooth_proxy/ble_scanner.cpp
+@@ -201,9 +201,8 @@
+ int ble_scanner_start(ble_scanner_t *scanner) {
+     if (!scanner) {
+         return -1;
+     }
+ 
+     if (scanner->running) {
+-        fprintf(stderr, LOG_PREFIX "Scanner already running\n");
+-        return -1;
++        return 0;  /* Idempotent for API reconnects and GATT coordination. */
+     }
+@@ -239,6 +238,9 @@
+ int ble_scanner_stop(ble_scanner_t *scanner) {
+-    if (!scanner || !scanner->running) {
++    if (!scanner) {
+         return -1;
+     }
++    if (!scanner->running) {
++        return 0;  /* Idempotent for disconnect cleanup. */
++    }
+ 
+     printf(LOG_PREFIX "Stopping scanner...\n");
