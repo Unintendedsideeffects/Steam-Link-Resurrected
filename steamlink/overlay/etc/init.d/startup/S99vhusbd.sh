@@ -1,5 +1,9 @@
 #!/bin/sh
 # Start Steam Link bundled VirtualHere USB Server for headless USB-over-Ethernet.
+ENABLE=$(sed -n 's/^ENABLE_VIRTUALHERE=//p' /mnt/config/setup/setup.conf 2>/dev/null | head -n1 | tr -d '\r')
+[ -n "$ENABLE" ] || ENABLE=1
+if [ "$ENABLE" = 1 ]; then rm -f /mnt/config/setup/disable-virtualhere.txt; else : > /mnt/config/setup/disable-virtualhere.txt; fi
+[ -f /mnt/config/setup/disable-virtualhere.txt ] && exit 0
 LOG=/mnt/config/log/vhusbd-startup.log
 BIN=/home/steam/bin/vhusbdarmsl
 PIDFILE=/var/run/vhusbdarm.pid

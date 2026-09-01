@@ -6,7 +6,7 @@
 CONF=/mnt/config/steamlink-usbip.conf
 [ -r "$CONF" ] || exit 0
 
-name=$(sed -n 's/^[[:space:]]*STEAMLINK_HOSTNAME[[:space:]]*=[[:space:]]*//p' "$CONF" | head -n 1)
+name=$(sed -n 's/^[[:space:]]*STEAMLINK_HOSTNAME[[:space:]]*=[[:space:]]*//p' "$CONF" | head -n 1 | tr -d '\r')
 case "$name" in
     ''|*[!A-Za-z0-9_.-]*) exit 0 ;;
 esac

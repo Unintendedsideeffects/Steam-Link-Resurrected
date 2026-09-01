@@ -28,6 +28,11 @@ removed or after power loss.
 The public tree contains only examples. The real file below is generated for
 each device and is ignored by Git:
 
+When SSH is enabled, the TUI creates a dedicated Ed25519 keypair on the
+machine running the bootstrap. It seeds only the public key into the device
+path /mnt/config/ssh/authorized_keys and shows the private-key path and
+first-login command at the end. The private key is never copied to the USB key.
+
 ```text
 steamlink/overlay/mnt/config/steamlink-usbip.conf
 steamlink/overlay/mnt/config/steamlink-ota.conf
@@ -45,10 +50,31 @@ The password is read only from the environment, written to the device-local
 configuration, and never committed. The script does not delete unrelated files
 from the key. Review the generated manifest before ejecting it.
 
+## Optional add-ons
+
+The bootstrap repository is the authoritative base USB-key builder. Add-ons
+are separate overlay packages and are layered explicitly during provisioning.
+For the native Steam Link USB status reporter from `steamlink-usb-proxy`:
+
+```sh
+steamlink-usb-proxy/scripts/build-optional-device-status.sh
+steamlink-usb-proxy/scripts/export-device-status-addon.sh /tmp/steamlink-status-addon
+STEAMLINK_OTA_PASSWORD='...' \
+STEAMLINK_ADDON_DIR=/tmp/steamlink-status-addon \
+STEAMLINK_MQTT_CONFIG=/path/to/SteamLinkKitchen-usb-proxy.conf \
+  scripts/provision-key.sh /mnt/steamlink-key SteamLinkKitchen
+```
+
+`STEAMLINK_ADDON_DIR` is optional. `STEAMLINK_MQTT_CONFIG` is optional and
+should only be supplied when the add-on is selected; it becomes the device-
+local `/mnt/config/usb-proxy/usb-proxy.conf`. The base bootstrap does not
+contain, start, or require the proxy add-on.
+
 ## Verification
 
 ```sh
 scripts/verify-layout.sh
+scripts/test-provision-key.sh
 cd /path/to/mounted/key/steamlink
 sha256sum -c PROVISIONED-SHA256SUMS
 ```

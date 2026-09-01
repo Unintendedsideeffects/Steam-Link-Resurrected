@@ -57,7 +57,7 @@ git -C "$SRC" apply "$ROOT/patches/esphome-linux-address-type.patch"
 git -C "$SRC" apply "$ROOT/patches/esphome-linux-nanoleaf-scan.patch"
 git -C "$SRC" apply "$ROOT/patches/esphome-linux-gatt-scan-coordination.patch"
 git -C "$SRC" apply "$ROOT/patches/esphome-linux-gatt-timeout.patch"
-git -C "$SRC" apply "$ROOT/patches/esphome-linux-2026.5.1.patch"
+git -C "$SRC" apply "$ROOT/patches/esphome-linux-2026.7.3.patch"
 
 # NimBLE: the upstream helper builds this library inside the atbm tree.
 ATBM="$SRC/nimble/atbm-wifi"
