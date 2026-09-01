@@ -28,15 +28,26 @@ removed or after power loss.
 The public tree contains only examples. The real file below is generated for
 each device and is ignored by Git:
 
+```text
+steamlink/overlay/mnt/config/steamlink-usbip.conf
+steamlink/overlay/mnt/config/steamlink-ota.conf
+```
+
 When SSH is enabled, the TUI creates a dedicated Ed25519 keypair on the
 machine running the bootstrap. It seeds only the public key into the device
 path /mnt/config/ssh/authorized_keys and shows the private-key path and
 first-login command at the end. The private key is never copied to the USB key.
 
-```text
-steamlink/overlay/mnt/config/steamlink-usbip.conf
-steamlink/overlay/mnt/config/steamlink-ota.conf
-```
+## TUI screenshots
+
+The interactive builder walks through SSH setup, shows the complete
+configuration before formatting, and confirms the generated access details.
+
+![SSH key setup prompt](docs/screenshots/tui-ssh.svg)
+
+![Final provisioning summary](docs/screenshots/tui-summary.svg)
+
+![Provisioning complete](docs/screenshots/tui-complete.svg)
 
 ## Provisioning
 

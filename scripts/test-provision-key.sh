@@ -3,6 +3,7 @@ set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 WORK=$(mktemp -d /tmp/steamlink-bootstrap-provision-test.XXXXXX)
+trap 'rm -rf "$WORK"' EXIT
 KEY="$WORK/key"
 mkdir -p "$KEY"
 ssh-keygen -q -t ed25519 -N '' -f "$WORK/host-key" >/dev/null

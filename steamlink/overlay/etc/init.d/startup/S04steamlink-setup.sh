@@ -1,24 +1,19 @@
 #!/bin/sh
 set -eu
+
+# First-boot setup AP and authenticated status web. Restore the persisted
+# ConnMan home profile, then keep the AP up until a usable LAN address appears.
 CONF=/mnt/config/setup/setup.conf
 DISABLE=/mnt/config/setup/disable-setup-web.txt
 PIDFILE=/var/run/steamlink-setup-web.pid
 WWW=/mnt/config/setup/www
 CSRF=/var/run/steamlink-setup.csrf
 get() { sed -n "s/^$1=//p" "$CONF" | head -n 1 | tr -d '\r'; }
-stop_web() {
-    if [ -r "$PIDFILE" ]; then
-        pid=$(tr -d '\r' <"$PIDFILE")
-        case "$pid" in ''|*[!0-9]*) ;; *) kill "$pid" 2>/dev/null || true;; esac
-        rm -f "$PIDFILE"
-    fi
-    connmanctl tether wifi off >/dev/null 2>&1 || true
-    ifconfig uap0 0.0.0.0 down >/dev/null 2>&1 || true
-}
+stop_web() { sh /mnt/config/setup/stop-web.sh; }
 home_network_ready() {
     for path in /sys/class/net/*; do
         iface=${path##*/}
-        case "$iface" in lo|uap0|sit*|tun*|docker*|br*) continue;; esac
+        case "$iface" in lo|uap0) continue;; esac
         addr=$(ifconfig "$iface" 2>/dev/null | sed -n -e 's/.*inet addr:\([^ ]*\).*/\1/p' -e 's/^[[:space:]]*inet[[:space:]]\+\([^ /]*\).*/\1/p' | head -n 1)
         [ -n "$addr" ] || continue
         case "$addr" in 127.*|169.254.*|192.168.42.1) continue;; esac
@@ -32,8 +27,6 @@ SETUP_SSID=$(get SETUP_SSID); SETUP_PASSWORD=$(get SETUP_PASSWORD)
 [ -n "$SETUP_SSID" ] && [ -n "$SETUP_PASSWORD" ] || exit 0
 mkdir -p /mnt/config/log /var/run
 chmod 755 "$WWW"/cgi-bin/*.cgi 2>/dev/null || true
-# ConnMan's runtime profile may be volatile; restore the provisioned or
-# web-saved copy before deciding whether the home network is available.
 if [ -f /mnt/config/setup/steamlinkhome.config ]; then
     mkdir -p /var/lib/connman
     cp /mnt/config/setup/steamlinkhome.config /var/lib/connman/steamlinkhome.config || true

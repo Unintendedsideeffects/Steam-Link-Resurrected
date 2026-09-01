@@ -41,8 +41,6 @@ if [ "$ENABLE_SSH" = 0 ]; then
     rm -f "$MOUNTPOINT/steamlink/config/system/enable_ssh.txt"
 fi
 
-# Optional add-ons provide an overlay/ tree.  The bootstrap remains the
-# authoritative base image and only layers an add-on when explicitly asked.
 if [ -n "$ADDON_DIR" ]; then
     [ -d "$ADDON_DIR/overlay" ] || {
         echo "add-on is missing overlay/: $ADDON_DIR" >&2

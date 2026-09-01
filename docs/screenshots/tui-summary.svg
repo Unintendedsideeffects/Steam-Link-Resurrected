@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="620" viewBox="0 0 1000 620">
+<rect width="1000" height="620" fill="#101218"/><rect x="24" y="24" width="952" height="572" rx="10" fill="#20242d" stroke="#555d70" stroke-width="2"/>
+<rect x="24" y="24" width="952" height="38" rx="10" fill="#343a48"/><circle cx="50" cy="43" r="7" fill="#ff5f57"/><circle cx="74" cy="43" r="7" fill="#febc2e"/><circle cx="98" cy="43" r="7" fill="#28c840"/>
+<text x="500" y="49" text-anchor="middle" fill="#d7dbe5" font-family="monospace" font-size="16">Steam Link Resurrected</text>
+<rect x="105" y="92" width="790" height="465" fill="#11131a" stroke="#7f8798" stroke-width="2"/>
+<text x="500" y="130" text-anchor="middle" fill="#ffffff" font-family="monospace" font-size="24" font-weight="bold">Final summary</text>
+<text x="145" y="177" fill="#e5e7eb" font-family="monospace" font-size="18">device=/dev/sdb  hostname=GuestRoomDesk</text>
+<text x="145" y="212" fill="#e5e7eb" font-family="monospace" font-size="18">setup_ssid=SteamLink-Setup-a1b2c3</text>
+<text x="145" y="247" fill="#e5e7eb" font-family="monospace" font-size="18">setup_password=••••••••••••••••••••••••</text>
+<text x="145" y="282" fill="#e5e7eb" font-family="monospace" font-size="18">SSH=1  VirtualHere=1  USB/IP=1  MQTT=1</text>
+<text x="145" y="317" fill="#7ee787" font-family="monospace" font-size="18">SSH private key=/root/.ssh/steamlink-GuestRoomDesk</text>
+<line x1="145" y1="350" x2="855" y2="350" stroke="#555d70"/>
+<text x="500" y="395" text-anchor="middle" fill="#ffd866" font-family="monospace" font-size="19">The selected partition will be formatted as FAT32.</text>
+<text x="500" y="460" text-anchor="middle" fill="#ffffff" font-family="monospace" font-size="19">Write this configuration and provision the key?</text>
+<text x="500" y="515" text-anchor="middle" fill="#7ee787" font-family="monospace" font-size="17">Yes / No</text>
+</svg>

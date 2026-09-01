@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="620" viewBox="0 0 1000 620">
+<rect width="1000" height="620" fill="#101218"/><rect x="24" y="24" width="952" height="572" rx="10" fill="#20242d" stroke="#555d70" stroke-width="2"/>
+<rect x="24" y="24" width="952" height="38" rx="10" fill="#343a48"/><circle cx="50" cy="43" r="7" fill="#ff5f57"/><circle cx="74" cy="43" r="7" fill="#febc2e"/><circle cx="98" cy="43" r="7" fill="#28c840"/>
+<text x="500" y="49" text-anchor="middle" fill="#d7dbe5" font-family="monospace" font-size="16">Steam Link Resurrected</text>
+<rect x="150" y="105" width="700" height="410" fill="#11131a" stroke="#7f8798" stroke-width="2"/>
+<text x="500" y="145" text-anchor="middle" fill="#ffffff" font-family="monospace" font-size="25" font-weight="bold">SSH ACCESS</text>
+<text x="190" y="198" fill="#e5e7eb" font-family="monospace" font-size="20">Enable SSH?</text>
+<text x="190" y="235" fill="#aeb6c7" font-family="monospace" font-size="17">Disabling SSH is risky because you may</text>
+<text x="190" y="262" fill="#aeb6c7" font-family="monospace" font-size="17">lose remote recovery access.</text>
+<text x="190" y="330" fill="#ffffff" font-family="monospace" font-size="19">SSH private key path:</text>
+<rect x="190" y="350" width="620" height="43" fill="#252a35" stroke="#aab2c2"/>
+<text x="207" y="378" fill="#ffffff" font-family="monospace" font-size="17">/root/.ssh/steamlink-GuestRoomDesk</text>
+<text x="190" y="455" fill="#7ee787" font-family="monospace" font-size="17">Tab: move    Enter: accept    Esc: cancel</text>
+</svg>

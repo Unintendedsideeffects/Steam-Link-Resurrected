@@ -6,7 +6,9 @@ UI=${STEAMLINK_UI:-whiptail}
 DEVICE=${1-}
 
 die() { echo "error: $*" >&2; exit 1; }
-ask() { "$UI" --title "Steam Link Resurrected" --inputbox "$1" 10 72 "${2-}" 3>&1 1>&2 2>&3; }
+ask() {
+    REPLY=$("$UI" --title "Steam Link Resurrected" --inputbox "$1" 10 72 "${2-}" 3>&1 1>&2 2>&3) || return $?
+}
 password() { "$UI" --title "Steam Link Resurrected" --passwordbox "$1" 10 72 3>&1 1>&2 2>&3; }
 yesno() { "$UI" --title "Steam Link Resurrected" --yesno "$1" 12 76; }
 valid_ipv4() {
@@ -26,7 +28,7 @@ command -v "$UI" >/dev/null 2>&1 || die "missing TUI program: $UI"
 command -v lsblk >/dev/null 2>&1 || die "missing lsblk"
 command -v mkfs.vfat >/dev/null 2>&1 || die "missing mkfs.vfat"
 command -v openssl >/dev/null 2>&1 || die "missing openssl"
-command -v ssh-keygen >/dev/null 2>&1 || die "ssh-keygen is required"
+command -v ssh-keygen >/dev/null 2>&1 || die "missing ssh-keygen"
 
 if [ -z "$DEVICE" ]; then
     DEVICE=$(lsblk -nrpo NAME,TYPE,RM,SIZE,MODEL | awk '$2 == "part" && $3 == "1" { print $1; exit }')
@@ -34,9 +36,11 @@ fi
 [ -b "$DEVICE" ] || die "no removable partition selected"
 [ "$(lsblk -ndo TYPE "$DEVICE")" = part ] || die "select a partition, not a whole disk"
 
-HOSTNAME_VALUE=$(ask "Steam Link hostname:" "GuestRoomDesk") || exit 1
+ask "Steam Link hostname:" "GuestRoomDesk" || exit 1
+HOSTNAME_VALUE=$REPLY
 case "$HOSTNAME_VALUE" in ''|*[!A-Za-z0-9_.-]*) die "invalid hostname";; esac
-WIFI_SSID=$(ask "Home Wi-Fi network name (SSID):") || exit 1
+ask "Home Wi-Fi network name (SSID):" || exit 1
+WIFI_SSID=$REPLY
 WIFI_PASSWORD=$(password "Home Wi-Fi password:") || exit 1
 [ -n "$WIFI_SSID" ] || die "Wi-Fi SSID cannot be empty"
 SSID_BYTES=$(printf '%s' "$WIFI_SSID" | wc -c | tr -d ' ')
@@ -50,7 +54,8 @@ yesno "Enable SSH?\n\nDisabling SSH is risky because you may lose remote access.
 SSH_KEY_PATH=; SSH_PUBLIC_KEY_FILE=
 if [ "$ENABLE_SSH" = 1 ]; then
     SSH_KEY_PATH=${STEAMLINK_SSH_KEY_PATH:-/root/.ssh/steamlink-$HOSTNAME_VALUE}
-    ask "SSH private key path [$SSH_KEY_PATH]: "; SSH_KEY_PATH=${REPLY:-$SSH_KEY_PATH}
+    ask "SSH private key path [$SSH_KEY_PATH]: "
+    SSH_KEY_PATH=${REPLY:-$SSH_KEY_PATH}
     case "$SSH_KEY_PATH" in /*) ;; *) die "SSH private key path must be absolute";; esac
     [ ! -e "$SSH_KEY_PATH" ] && [ ! -e "$SSH_KEY_PATH.pub" ] || die "SSH key already exists: $SSH_KEY_PATH (choose another path)"
     mkdir -p "$(dirname "$SSH_KEY_PATH")"; chmod 700 "$(dirname "$SSH_KEY_PATH")"
@@ -71,9 +76,12 @@ MQTT_CONFIG=
 if [ "$ENABLE_MQTT" = 1 ]; then
     ADDON_DIR=${STEAMLINK_ADDON_DIR-}
     [ -n "$ADDON_DIR" ] || die "MQTT selected but STEAMLINK_ADDON_DIR is not set"
-    MQTT_HOST=$(ask "MQTT broker host:" "192.168.86.35") || exit 1
-    MQTT_PORT=$(ask "MQTT broker port:" "1883") || exit 1
-    MQTT_USER=$(ask "MQTT username:") || exit 1
+    ask "MQTT broker host:" "192.168.86.35" || exit 1
+    MQTT_HOST=$REPLY
+    ask "MQTT broker port:" "1883" || exit 1
+    MQTT_PORT=$REPLY
+    ask "MQTT username:" || exit 1
+    MQTT_USER=$REPLY
     MQTT_PASSWORD=$(password "MQTT password:") || exit 1
     valid_ipv4 "$MQTT_HOST" || die "MQTT broker host must be an IPv4 address"
     case "$MQTT_PORT" in ''|*[!0-9]*) die "invalid MQTT broker port";; esac
@@ -114,4 +122,6 @@ chmod 600 "$MOUNTPOINT/steamlink/overlay/mnt/config/setup/setup.conf" 2>/dev/nul
 (cd "$MOUNTPOINT/steamlink" && find config overlay -type f -print | sort | while IFS= read -r file; do sha256sum "$file"; done) >"$MOUNTPOINT/steamlink/PROVISIONED-SHA256SUMS"
 sync
 "$UI" --title "Steam Link key ready" --msgbox "Provisioned $HOSTNAME_VALUE.\n\nSetup Wi-Fi: $SETUP_SSID\nSetup password: $SETUP_PASSWORD\nSetup web secret: $WEB_SECRET\nSSH key: ${SSH_KEY_PATH:-disabled}" 16 72
-[ "$ENABLE_SSH" = 1 ] && echo "SSH access: ssh -i $SSH_KEY_PATH root@<Steam-Link-IP>"
+if [ "$ENABLE_SSH" = 1 ]; then
+    echo "SSH access: ssh -i $SSH_KEY_PATH root@<Steam-Link-IP>"
+fi
