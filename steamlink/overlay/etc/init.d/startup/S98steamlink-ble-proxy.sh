@@ -7,8 +7,22 @@ MAINTENANCE_PIDFILE=/var/run/steamlink-ble-proxy-maintenance.pid
 BACKUP_CLEANUP_PIDFILE=/var/run/steamlink-ble-proxy-backup-cleanup.pid
 BACKUP=/mnt/config/ble-proxy/esphome-linux.before-project-metadata-fix-20260722
 ROTATE_BYTES=10485760
+CONF=/mnt/config/ble-proxy/ble-proxy.conf
+EXAMPLE=/mnt/config/ble-proxy/ble-proxy.conf.example
 
 mkdir -p /mnt/config/log /var/run
+
+load_proxy_env() {
+    conf=$CONF
+    [ -r "$conf" ] || conf=$EXAMPLE
+    [ -r "$conf" ] || return 0
+    log_level=$(sed -n 's/^LOG_LEVEL=//p' "$conf" | head -n 1 | tr -d '\r')
+    ble_verbose=$(sed -n 's/^BLE_PROXY_VERBOSE=//p' "$conf" | head -n 1 | tr -d '\r')
+    api_verbose=$(sed -n 's/^ESPHOME_API_VERBOSE=//p' "$conf" | head -n 1 | tr -d '\r')
+    [ -n "$log_level" ] && export LOG_LEVEL="$log_level"
+    [ -n "$ble_verbose" ] && export BLE_PROXY_VERBOSE="$ble_verbose"
+    [ -n "$api_verbose" ] && export ESPHOME_API_VERBOSE="$api_verbose"
+}
 
 proxy_is_healthy() {
     PIDS=$(pidof esphome-linux 2>/dev/null || true)
@@ -100,6 +114,7 @@ fi
         sleep 1
         hciconfig hci0 up >/dev/null 2>&1 || true
         echo "$(date): starting Steam Link BLE proxy" >>"$LOG"
+        load_proxy_env
         "$BIN" >>"$LOG" 2>&1
         RC=$?
         echo "$(date): BLE proxy exited rc=$RC; restarting in 5s" >>"$LOG"

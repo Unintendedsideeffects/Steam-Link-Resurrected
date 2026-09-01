@@ -10,6 +10,12 @@ if [ "$ENABLE" = 1 ]; then rm -f /mnt/config/setup/disable-usbip.txt; else : > /
 (
     while :; do
         [ -f /mnt/config/setup/disable-usbip.txt ] && exit 0
+        SIZE=$(stat -c %s /mnt/config/log/usbip-supervisor.log 2>/dev/null || echo 0)
+        case "$SIZE" in ''|*[!0-9]*) SIZE=0 ;; esac
+        if [ "$SIZE" -ge 10485760 ]; then
+            cp /mnt/config/log/usbip-supervisor.log /mnt/config/log/usbip-supervisor.log.1 2>/dev/null || true
+            : > /mnt/config/log/usbip-supervisor.log
+        fi
         if ! netstat -lnt 2>/dev/null | grep -q ':3240 '; then
             /mnt/config/usbip/bin/usbip-start
         fi

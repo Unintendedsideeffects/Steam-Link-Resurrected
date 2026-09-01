@@ -23,14 +23,19 @@ Standard features of the Steamlink are still working!
 The `steamlink/` tree is copied to a FAT32 USB key. `scripts/provision-key.sh`
 copies files, writes the device-local hostname, and generates a checksum manifest.
 Keep the key inserted: the Steam Link can lose these customizations when it is
-removed or after power loss.
+removed or after power loss. FAT32 does not store Unix permissions, so
+`chmod 600` on device secrets is a no-op on the key; anyone with the stick
+can read `setup.conf`, `steamlink-ota.conf`, and `authorized_keys`.
 
-The public tree contains only examples. The real file below is generated for
-each device and is ignored by Git:
+The public tree contains only examples. The real files below are generated for
+each device and are ignored by Git:
 
 ```text
 steamlink/overlay/mnt/config/steamlink-usbip.conf
 steamlink/overlay/mnt/config/steamlink-ota.conf
+steamlink/overlay/mnt/config/setup/setup.conf
+steamlink/overlay/mnt/config/ssh/authorized_keys
+steamlink/overlay/mnt/config/ble-proxy/ble-proxy.conf
 ```
 
 When SSH is enabled, the TUI creates a dedicated Ed25519 keypair on the
@@ -40,14 +45,47 @@ first-login command at the end. The private key is never copied to the USB key.
 
 ## TUI screenshots
 
-The interactive builder walks through SSH setup, shows the complete
-configuration before formatting, and confirms the generated access details.
+These are captures of `sudo ./launch.sh` actually running: real whiptail
+dialogs, in this order. The values shown come from one throwaway demo run, so
+the secrets in them are not usable.
 
-![SSH key setup prompt](docs/screenshots/tui-ssh.svg)
+The builder starts with the device identity and the home network it should
+join:
 
-![Final provisioning summary](docs/screenshots/tui-summary.svg)
+![whiptail hostname prompt](docs/screenshots/tui-hostname.png)
 
-![Provisioning complete](docs/screenshots/tui-complete.svg)
+![whiptail home Wi-Fi SSID prompt](docs/screenshots/tui-wifi.png)
+
+SSH is opt-in, and when it is enabled the builder asks where to write the
+device-specific private key on this machine:
+
+![whiptail Enable SSH confirmation](docs/screenshots/tui-ssh.png)
+
+![whiptail SSH private key path prompt](docs/screenshots/tui-ssh-key.png)
+
+Nothing is written until the final confirmation, which repeats the generated
+setup AP credentials and web secret before the partition is formatted:
+
+![whiptail pre-format summary](docs/screenshots/tui-summary.png)
+
+When the key has been written and verified, the access details are shown once:
+
+![whiptail provisioning complete dialog](docs/screenshots/tui-complete.png)
+
+## Building a key
+
+The interactive builder is launched with:
+
+    sudo ./launch.sh /dev/sdb1
+
+It requires whiptail, lsblk, mkfs.vfat, openssl, and ssh-keygen. Pass a
+removable partition such as /dev/sdb1, not a whole disk. The launcher refuses
+non-removable or mounted partitions. USB diagnostic snapshots are off unless
+you enable them; they write to the key every 15 seconds.
+
+On first boot, use the setup AP credentials shown by the TUI and open
+http://192.168.42.1/. The setup web login is username admin and the generated
+web secret; disable the setup web when finished.
 
 ## Provisioning
 
@@ -55,6 +93,7 @@ Run with a unique secret for each physical device:
 
 ```sh
 STEAMLINK_OTA_PASSWORD='generate-a-long-random-secret' \
+STEAMLINK_ENABLE_SSH=0 \
   scripts/provision-key.sh /mnt/steamlink-key SteamLinkOffice
 ```
 The password is read only from the environment, written to the device-local
@@ -63,14 +102,17 @@ from the key. Review the generated manifest before ejecting it.
 
 ## Optional add-ons
 
+For optional native status reporting, provide an overlay directory and MQTT
+configuration explicitly.
+
 The bootstrap repository is the authoritative base USB-key builder. Add-ons
 are separate overlay packages and are layered explicitly during provisioning.
-For the native Steam Link USB status reporter from `steamlink-usb-proxy`:
+For an optional native Steam Link USB status reporter overlay, provide an
+overlay directory and MQTT configuration explicitly:
 
 ```sh
-steamlink-usb-proxy/scripts/build-optional-device-status.sh
-steamlink-usb-proxy/scripts/export-device-status-addon.sh /tmp/steamlink-status-addon
 STEAMLINK_OTA_PASSWORD='...' \
+STEAMLINK_ENABLE_SSH=0 \
 STEAMLINK_ADDON_DIR=/tmp/steamlink-status-addon \
 STEAMLINK_MQTT_CONFIG=/path/to/SteamLinkKitchen-usb-proxy.conf \
   scripts/provision-key.sh /mnt/steamlink-key SteamLinkKitchen
@@ -86,6 +128,7 @@ contain, start, or require the proxy add-on.
 ```sh
 scripts/verify-layout.sh
 scripts/test-provision-key.sh
+scripts/test-create-key-ui.sh
 cd /path/to/mounted/key/steamlink
 sha256sum -c PROVISIONED-SHA256SUMS
 ```
@@ -122,9 +165,11 @@ preserving Nanoleaf advertisement monitoring between connections.
 
 Runtime logging is controlled by the generated
 `/mnt/config/ble-proxy/ble-proxy.conf`; the public example defaults to
-`LOG_LEVEL=Warning`, `BLE_PROXY_VERBOSE=0`, and `ESPHOME_API_VERBOSE=0`. Set
-either verbose flag to `1` only for a short diagnostic window because packet
-and advertisement logs are otherwise suppressed or rate-limited.
+`LOG_LEVEL=Warning`, `BLE_PROXY_VERBOSE=0`, and `ESPHOME_API_VERBOSE=0`. The
+startup supervisor exports those three names into the proxy process environment
+before each launch. Set either verbose flag to `1` only for a short diagnostic
+window because packet and advertisement logs are otherwise suppressed or
+rate-limited.
 
 ## Rebuilding the BLE proxy
 

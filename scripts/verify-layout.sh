@@ -3,6 +3,8 @@ set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
+[ -x launch.sh ] || { echo "missing executable launch.sh" >&2; exit 1; }
+[ -x scripts/test-create-key-ui.sh ] || { echo "missing executable scripts/test-create-key-ui.sh" >&2; exit 1; }
 
 required='steamlink/config/system/enable_ssh.txt
 steamlink/config/system/suspend_timeout_idle.txt
@@ -27,6 +29,7 @@ steamlink/overlay/mnt/config/setup/stop-web.sh'
 printf '%s\n' "$required" | while IFS= read -r file; do
     [ -e "$file" ] || { echo "missing: $file" >&2; exit 1; }
 done
+[ -x steamlink/overlay/mnt/config/setup/apply-wifi.sh ] || { echo "setup Wi-Fi helper is not executable" >&2; exit 1; }
 
 if find steamlink -type f | grep -Eiq 'python|duckypad'; then
     echo "out-of-scope Python or DuckyPad file found" >&2

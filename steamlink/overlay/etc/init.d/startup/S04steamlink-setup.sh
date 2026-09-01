@@ -8,6 +8,7 @@ DISABLE=/mnt/config/setup/disable-setup-web.txt
 PIDFILE=/var/run/steamlink-setup-web.pid
 WWW=/mnt/config/setup/www
 CSRF=/var/run/steamlink-setup.csrf
+AUTH=/mnt/config/setup/httpd.conf
 get() { sed -n "s/^$1=//p" "$CONF" | head -n 1 | tr -d '\r'; }
 stop_web() { sh /mnt/config/setup/stop-web.sh; }
 home_network_ready() {
@@ -23,8 +24,8 @@ home_network_ready() {
 }
 [ -f "$DISABLE" ] && { stop_web; exit 0; }
 [ -r "$CONF" ] || exit 0
-SETUP_SSID=$(get SETUP_SSID); SETUP_PASSWORD=$(get SETUP_PASSWORD)
-[ -n "$SETUP_SSID" ] && [ -n "$SETUP_PASSWORD" ] || exit 0
+SETUP_SSID=$(get SETUP_SSID); SETUP_PASSWORD=$(get SETUP_PASSWORD); WEB_SECRET=$(get WEB_SECRET)
+[ -n "$SETUP_SSID" ] && [ -n "$SETUP_PASSWORD" ] && [ -n "$WEB_SECRET" ] || exit 0
 mkdir -p /mnt/config/log /var/run
 chmod 755 "$WWW"/cgi-bin/*.cgi 2>/dev/null || true
 if [ -f /mnt/config/setup/steamlinkhome.config ]; then
@@ -39,7 +40,9 @@ connmanctl tether wifi on "$SETUP_SSID" "$SETUP_PASSWORD" >/mnt/config/log/setup
 umask 077
 if [ ! -s "$CSRF" ]; then od -An -N16 -tx1 /dev/urandom | tr -d ' \n' >"$CSRF"; fi
 chmod 600 "$CSRF" 2>/dev/null || true
-httpd -p 192.168.42.1:80 -h "$WWW" -f >/mnt/config/log/setup-httpd.log 2>&1 &
+printf '/cgi-bin:admin:%s\n' "$WEB_SECRET" >"$AUTH"
+chmod 600 "$AUTH"
+httpd -p 192.168.42.1:80 -h "$WWW" -c "$AUTH" -r "Steam Link Setup" -f >/mnt/config/log/setup-httpd.log 2>&1 &
 echo $! >"$PIDFILE"
 (
     while [ ! -f "$DISABLE" ]; do
@@ -50,4 +53,5 @@ echo $! >"$PIDFILE"
 ) >/dev/null 2>&1 &
 if [ "$(get ENABLE_USBIP)" = 1 ]; then rm -f /mnt/config/setup/disable-usbip.txt; else : > /mnt/config/setup/disable-usbip.txt; fi
 if [ "$(get ENABLE_VIRTUALHERE)" = 1 ]; then rm -f /mnt/config/setup/disable-virtualhere.txt; else : > /mnt/config/setup/disable-virtualhere.txt; fi
+if [ "$(get ENABLE_DIAGNOSTICS)" = 1 ]; then rm -f /mnt/config/setup/disable-diagnostics.txt; else : > /mnt/config/setup/disable-diagnostics.txt; fi
 exit 0

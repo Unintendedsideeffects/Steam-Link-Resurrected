@@ -5,4 +5,8 @@ __pycache__/
 
 # Device-local configuration and generated key manifests.
 steamlink/overlay/mnt/config/steamlink-usbip.conf
+steamlink/overlay/mnt/config/steamlink-ota.conf
+steamlink/overlay/mnt/config/setup/setup.conf
+steamlink/overlay/mnt/config/ssh/authorized_keys
+steamlink/overlay/mnt/config/ble-proxy/ble-proxy.conf
 steamlink/PROVISIONED-SHA256SUMS

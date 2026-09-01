@@ -1,8 +1,12 @@
 #!/bin/sh
 
 # Persistent diagnostic snapshots for intermittent Steam Link failures.
-# This is intentionally local-device logging and is not part of the public
-# configuration; the generated log must never be copied into Git.
+# Opt-in via ENABLE_DIAGNOSTICS; the log must never be copied into Git.
+# Steam Link BusyBox 1.24.1 implements timeout -t SECONDS.
+ENABLE=$(sed -n 's/^ENABLE_DIAGNOSTICS=//p' /mnt/config/setup/setup.conf 2>/dev/null | head -n1 | tr -d '\r')
+[ -n "$ENABLE" ] || ENABLE=0
+if [ "$ENABLE" = 1 ]; then rm -f /mnt/config/setup/disable-diagnostics.txt; else : > /mnt/config/setup/disable-diagnostics.txt; fi
+[ -f /mnt/config/setup/disable-diagnostics.txt ] && exit 0
 LOG=/mnt/config/log/steamlink-diagnostics.log
 PIDFILE=/var/run/steamlink-diagnostics.pid
 ROTATE_BYTES=16777216
