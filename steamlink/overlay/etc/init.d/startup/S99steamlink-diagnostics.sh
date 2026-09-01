@@ -159,7 +159,7 @@ snapshot() {
         fi
         sleep "$INTERVAL"
     done
-) &
+) >/dev/null 2>&1 &
 
 echo $! >"$PIDFILE"
 exit 0

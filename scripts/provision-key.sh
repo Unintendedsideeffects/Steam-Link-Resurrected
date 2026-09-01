@@ -53,6 +53,11 @@ fi
 
 # FAT32 cannot preserve symlinks, so flatten the public tree while copying.
 cp -rL "$ROOT/steamlink/." "$MOUNTPOINT/steamlink/"
+rm -f "$MOUNTPOINT/steamlink/overlay/mnt/config/ssh/authorized_keys" \
+    "$MOUNTPOINT/steamlink/overlay/mnt/config/steamlink-ota.conf" \
+    "$MOUNTPOINT/steamlink/overlay/mnt/config/steamlink-usbip.conf" \
+    "$MOUNTPOINT/steamlink/overlay/mnt/config/setup/setup.conf" \
+    "$MOUNTPOINT/steamlink/overlay/mnt/config/ble-proxy/ble-proxy.conf"
 if [ "$ENABLE_SSH" = 0 ]; then
     rm -f "$MOUNTPOINT/steamlink/config/system/enable_ssh.txt"
 fi
@@ -63,7 +68,7 @@ fi
 
 BLE_EXAMPLE="$MOUNTPOINT/steamlink/overlay/mnt/config/ble-proxy/ble-proxy.conf.example"
 BLE_CONF="$MOUNTPOINT/steamlink/overlay/mnt/config/ble-proxy/ble-proxy.conf"
-if [ ! -f "$BLE_CONF" ] && [ -f "$BLE_EXAMPLE" ]; then
+if [ -f "$BLE_EXAMPLE" ]; then
     cp "$BLE_EXAMPLE" "$BLE_CONF"
 fi
 
