@@ -1,269 +1,103 @@
-# Steam Link Resurrected
+# Steam Link Resurrected (`steamlink-usbip-bootstrap`)
 
-This is a simple project to share what I use for the steamlinks at home. 
-They are very old but I wanted to use them as stations for the various desks I have at home. 
-The list of features is more or less this
+This repository builds a FAT32 USB bootstrap drive that provisions a Valve Steam Link device with:
+- **SSH access** with host-generated key pairs
+- **USB/IP server & supervisor** (TCP port `3240`) for forwarding USB devices to remote hosts
+- **ESPHome Bluetooth Proxy** (TCP port `6053`) supporting active GATT connections (reads, writes, notifications) and native authenticated OTA updates (TCP port `8082`)
+- **VirtualHere USB Server** (TCP port `7575`) using the firmware's bundled daemon
+- **Wi-Fi Uplink Watchdog** providing automatic connection recovery and rate-limited reboot escalation
+- **Device-local hostname configuration** and network setup web portal (`192.168.42.1`)
+- **Power management overrides** disabling the firmware's idle and interactive suspend timers
+- Optional native MQTT device status reporter
 
-- standard Steam Link SSH/bootstrap support, this is the standard boostrap process you might be accustomed to;
-- device-local hostname configuration;
-- USB/IP server and supervisor, this is super useful to use esp32 and similar through the steam link to an host;
-- the ESPHome Linux Bluetooth proxy;
-- active ESPHome Bluetooth GATT connections (service discovery, reads, writes,
-  descriptor operations, and notifications);
-- authenticated native ESPHome OTA for the BLE proxy binary;
-- the Steam Link bundled VirtualHere server.
-- the idle power timeout is disabled because the firmware otherwise kills the
-  services after roughly 993 seconds;
+Standard Steam Link streaming features remain functional alongside these background services.
 
+---
 
-Standard features of the Steamlink are still working!
+## Quick Start: Building a Boot Key
 
-## Layout
+### 1. Requirements on the Build Machine
+The host preparation script requires Linux with:
+`whiptail`, `lsblk`, `mkfs.vfat` (`dosfstools`), `openssl`, and `ssh-keygen`.
 
-The `steamlink/` tree is copied to a FAT32 USB key. `scripts/provision-key.sh`
-copies files, writes the device-local hostname, and generates a checksum manifest.
-Keep the key inserted: the Steam Link can lose these customizations when it is
-removed or after power loss. FAT32 does not store Unix permissions, so
-`chmod 600` on device secrets is a no-op on the key; anyone with the stick
-can read `setup.conf`, `steamlink-ota.conf`, and `authorized_keys`.
-
-The public tree contains only examples. The real files below are generated for
-each device and are ignored by Git:
-
-```text
-steamlink/overlay/mnt/config/steamlink-usbip.conf
-steamlink/overlay/mnt/config/steamlink-ota.conf
-steamlink/overlay/mnt/config/setup/setup.conf
-steamlink/overlay/mnt/config/ssh/authorized_keys
-steamlink/overlay/mnt/config/ble-proxy/ble-proxy.conf
-```
-
-When SSH is enabled, the TUI creates a dedicated Ed25519 keypair on the
-machine running the bootstrap. It seeds only the public key into the device
-path /mnt/config/ssh/authorized_keys and shows the private-key path and
-first-login command at the end. The private key is never copied to the USB key.
-
-## Startup scripts
-
-`steamlink/overlay/etc/init.d/startup/` holds the boot hooks copied onto the
-device. `S99steam` is the late anchor that runs the others on the very first
-boot, before they are picked up by the stock startup glob.
-
-Several are inert unless something opts them in, so a device that does not want
-them needs no edits:
-
-| Script | Runs when |
-| --- | --- |
-| `S03steamlink-boot-watchdog.sh` | `/mnt/config/system/enable_lan_factory_reset_watchdog.txt` exists |
-| `S95wifi-watchdog.sh` | ConnMan has a wifi service *and* the default route is on a wireless interface |
-| `S96steamlink-device-status.sh` | `/mnt/config/usb-proxy/usb-proxy.conf` is non-empty |
-| `S99steamlink-diagnostics.sh` | `ENABLE_DIAGNOSTICS=1` in `setup.conf` |
-| `S99vhusbd.sh` | `ENABLE_VIRTUALHERE=1` in `setup.conf` |
-| `S03install-deploy-key.sh` | always |
-
-Every hook is inert unless its prerequisite exists, so the same overlay can be
-deployed to every unit in the fleet regardless of what hardware each one has.
-Keep it that way: a hook that starts work unconditionally will run on all of
-them.
-
-The duckyPad and USB-proxy launchers are deliberately **not** here. They belong
-to their own projects, and the Python ones could never have worked anyway --
-this firmware ships no Python interpreter, so they only ever wrote
-"No python interpreter found" to a log on every boot.
-
-`S03install-deploy-key.sh` writes the fleet public key to **both**
-`/mnt/config/ssh/authorized_keys` and `/home/steam/.ssh/authorized_keys`.
-Stock `sshd_config` uses `AuthorizedKeysFile .ssh/authorized_keys`, and root's
-home on this firmware is `/home/steam` -- `/root` is on the read-only rootfs
-and cannot be written at all. Writing only the `/mnt/config` path appears to
-succeed and still leaves key authentication broken.
-
-`S95wifi-watchdog.sh` is for boxes whose uplink is WiFi, where the wired port is
-no longer a management path. It derives the ConnMan service, uplink interface
-and gateway at runtime, so it carries no addresses or SSIDs; override with
-`WIFI_WATCHDOG_SVC`, `WIFI_WATCHDOG_UP` or `WIFI_WATCHDOG_GW` in `setup.conf`.
-It escalates reconnect -> restart connmand -> reload the wifi stack -> reboot
-(rate limited to once an hour) and logs every transition to
-`/mnt/config/log/wifi-watchdog.log`. **Read that log rather than assuming it
-recovers fine** -- regular level-3 escalations mean a real fault that wants
-fixing at the source.
-
-**`/etc/init.d/startup/` executes everything matching `S*`.** `startup.sh`
-loops over `$STARTUPDIR/S*` and runs every executable match, so a file such as
-`S97usbip.sh.pre-minfree-20260919` is not a backup -- it is a second copy of
-the service, started on every boot. Never park a backup in this directory;
-keep it outside the tree or name it so it cannot match `S*`.
-
-`S99steam` does not invoke `S95wifi-watchdog.sh` or
-`S96steamlink-device-status.sh` on the first boot; both start from the second
-boot onward, once the stock glob sees them.
-
-## TUI screenshots
-
-These are captures of `sudo ./launch.sh` actually running: real whiptail
-dialogs, in this order. The values shown come from one throwaway demo run, so
-the secrets in them are not usable.
-
-The builder starts with the device identity and the home network it should
-join:
-
-![whiptail hostname prompt](docs/screenshots/tui-hostname.png)
-
-![whiptail home Wi-Fi SSID prompt](docs/screenshots/tui-wifi.png)
-
-SSH is opt-in, and when it is enabled the builder asks where to write the
-device-specific private key on this machine:
-
-![whiptail Enable SSH confirmation](docs/screenshots/tui-ssh.png)
-
-![whiptail SSH private key path prompt](docs/screenshots/tui-ssh-key.png)
-
-Nothing is written until the final confirmation, which repeats the generated
-setup AP credentials and web secret before the partition is formatted:
-
-![whiptail pre-format summary](docs/screenshots/tui-summary.png)
-
-When the key has been written and verified, the access details are shown once:
-
-![whiptail provisioning complete dialog](docs/screenshots/tui-complete.png)
-
-## Building a key
-
-The interactive builder is launched with:
-
-    sudo ./launch.sh /dev/sdb1
-
-It requires whiptail, lsblk, mkfs.vfat, openssl, and ssh-keygen. Pass a
-removable partition such as /dev/sdb1, not a whole disk. The launcher refuses
-non-removable or mounted partitions. USB diagnostic snapshots are off unless
-you enable them; they write to the key every 15 seconds.
-
-On first boot, use the setup AP credentials shown by the TUI and open
-http://192.168.42.1/. The setup web login is username admin and the generated
-web secret; disable the setup web when finished.
-
-## Provisioning
-
-Run with a unique secret for each physical device:
+### 2. Interactive Setup (TUI)
+Insert a USB flash drive (must be a removable drive, e.g. `/dev/sdb1`), ensure all partitions on it are unmounted, and run:
 
 ```sh
-STEAMLINK_OTA_PASSWORD='generate-a-long-random-secret' \
-STEAMLINK_ENABLE_SSH=0 \
-  scripts/provision-key.sh /mnt/steamlink-key SteamLinkOffice
+sudo ./launch.sh /dev/sdb1
 ```
-The password is read only from the environment, written to the device-local
-configuration, and never committed. The script does not delete unrelated files
-from the key. Review the generated manifest before ejecting it.
 
-## Optional add-ons
+The script will prompt for:
+1. Target **Hostname** (default: `GuestRoomDesk`)
+2. Local **Home Wi-Fi SSID** and passphrase
+3. **SSH enablement** and local destination for the private key (e.g. `/root/.ssh/steamlink-GuestRoomDesk`)
+4. Feature flags for **USB/IP**, **VirtualHere**, **MQTT reporting**, and **Diagnostics**
+5. Confirmation before formatting the partition as FAT32 (`mkfs.vfat -F 32 -n STEAMLINK`)
 
-For optional native status reporting, provide an overlay directory and MQTT
-configuration explicitly.
+*For a full walkthrough with dialog screenshots, see [`docs/provisioning.md`](docs/provisioning.md).*
 
-The bootstrap repository is the authoritative base USB-key builder. Add-ons
-are separate overlay packages and are layered explicitly during provisioning.
-For an optional native Steam Link USB status reporter overlay, provide an
-overlay directory and MQTT configuration explicitly:
+### 3. Non-Interactive / Scripted Setup
+To provision an existing mount point non-interactively:
 
 ```sh
-STEAMLINK_OTA_PASSWORD='...' \
-STEAMLINK_ENABLE_SSH=0 \
-STEAMLINK_ADDON_DIR=/tmp/steamlink-status-addon \
-STEAMLINK_MQTT_CONFIG=/path/to/SteamLinkKitchen-usb-proxy.conf \
-  scripts/provision-key.sh /mnt/steamlink-key SteamLinkKitchen
+STEAMLINK_OTA_PASSWORD='replace-with-a-random-secret' \
+STEAMLINK_ENABLE_SSH=1 \
+STEAMLINK_SSH_PUBLIC_KEY_FILE=/path/to/key.pub \
+  scripts/provision-key.sh /mnt/usbkey TargetHostname
 ```
 
-`STEAMLINK_ADDON_DIR` is optional. `STEAMLINK_MQTT_CONFIG` is optional and
-should only be supplied when the add-on is selected; it becomes the device-
-local `/mnt/config/usb-proxy/usb-proxy.conf`. The base bootstrap does not
-contain, start, or require the proxy add-on.
+### 4. First Boot & Setup AP
+1. Insert the USB drive into the Steam Link and connect power.
+2. The device copies configuration and startup hooks to `/mnt/config` on flash memory.
+3. If the home Wi-Fi network does not connect immediately, the device launches an ad-hoc Wi-Fi access point:
+   - **SSID**: `SteamLink-Setup-<hostname>`
+   - **Password**: Shown in TUI completion screen (and saved in `/mnt/config/setup/setup.conf`)
+   - **Web Portal**: `http://192.168.42.1/` (HTTP Basic Auth username: `admin`, password: `WEB_SECRET`)
+4. Once configured, disable the setup web portal or wait for the unit to join your home network.
 
-## Verification
+---
+
+## Network Services & Ports
+
+Once booted and connected to your network, the following services listen on the Steam Link:
+
+| Port | Protocol | Service | Managed By |
+|---|---|---|---|
+| `22` | TCP | OpenSSH Daemon | Stock firmware (`/etc/sshd_config`) + [`S03install-deploy-key.sh`](steamlink/overlay/etc/init.d/startup/S03install-deploy-key.sh) |
+| `3240` | TCP | USB/IP Daemon (`usbipd`) | [`S97usbip.sh`](steamlink/overlay/etc/init.d/startup/S97usbip.sh) / [`usbip-start`](steamlink/overlay/mnt/config/usbip/bin/usbip-start) |
+| `6053` | TCP | ESPHome Native API (BLE Proxy) | [`S98steamlink-ble-proxy.sh`](steamlink/overlay/etc/init.d/startup/S98steamlink-ble-proxy.sh) / [`esphome-linux`](steamlink/overlay/mnt/config/ble-proxy/esphome-linux) |
+| `7575` | TCP | VirtualHere Server (`vhusbdarmsl`) | [`S99vhusbd.sh`](steamlink/overlay/etc/init.d/startup/S99vhusbd.sh) |
+| `8082` | TCP | ESPHome Native OTA Updates | [`esphome-linux`](steamlink/overlay/mnt/config/ble-proxy/esphome-linux) |
+| `80` | TCP | Setup Web Interface (`192.168.42.1` only) | [`S04steamlink-setup.sh`](steamlink/overlay/etc/init.d/startup/S04steamlink-setup.sh) (temporary, on `uap0`) |
+
+---
+
+## Documentation Index
+
+Detailed reference documentation is organized across specialized documents:
+
+- **[`docs/architecture.md`](docs/architecture.md)**:
+  Filesystem layout (yaffs2 read-only `/`, unionfs overlays), the boot sequence, `startup.sh` glob execution, late-anchor `S99steam`, and power management idle timers.
+- **[`docs/provisioning.md`](docs/provisioning.md)**:
+  Full walkthrough of `launch.sh` and `create-key.sh` TUI dialogs with screenshots, environment variables for `provision-key.sh`, device-local secret handling, and the setup AP.
+- **[`docs/startup-hooks.md`](docs/startup-hooks.md)**:
+  Catalogue of all scripts in `/etc/init.d/startup/`, their specific opt-in prerequisites, execution flags, and background processes.
+- **[`docs/ssh.md`](docs/ssh.md)**:
+  Key management, the root home directory pitfall (`/home/steam` vs `/root`), dual key installation, and SSH connections.
+- **[`docs/troubleshooting.md`](docs/troubleshooting.md)**:
+  Critical live-firmware discoveries: `S*` startup glob matching, lack of Python, BusyBox ash trap numbers, subshell PID traps, script editing rules, and persistent log file locations.
+- **[`docs/development.md`](docs/development.md)**:
+  Running test suites (`verify-layout.sh`, `test-provision-key.sh`, `test-create-key-ui.sh`), binary provenance (`artifacts/SHA256SUMS`), and compiling the static BLE proxy from source.
+
+---
+
+## Verification & Testing
+
+Verify repository scripts and layout consistency locally with:
 
 ```sh
 scripts/verify-layout.sh
 scripts/test-provision-key.sh
 scripts/test-create-key-ui.sh
-cd /path/to/mounted/key/steamlink
-sha256sum -c PROVISIONED-SHA256SUMS
-```
-
-On the Steam Link, verify listeners on TCP `3240` (USB/IP), `6053` (BLE),
-`7575` (VirtualHere), and `8082` (authenticated native ESPHome OTA).
-
-The BLE proxy advertises active GATT support through the ESPHome Native API.
-Home Assistant can therefore connect to a discovered BLE device and use its
-services, reads, writes, descriptors, and notifications through the same proxy.
-The startup supervisor is the singleton owner of `hci0`, keeps the previous
-proxy binary while an OTA candidate passes its ELF, TCP, and adapter-health
-checks, and restores a candidate that fails those checks. Do not run
-`hcitool`, `btmon`, `bluetoothctl`, or another scanner against `hci0` while the
-proxy is active; consumers should subscribe to the proxy's raw advertisements.
-
-The proxy has bounded API admission, idle socket timeouts, detached/reclaimed
-client threads, per-client GATT cleanup, reference-counted scanner ownership,
-and rate-limited diagnostics. Multiple API consumers can subscribe to scanning
-without one consumer stopping another consumer's scanner. It does not claim
-ESPHome pairing support because the bundled raw libblepp transport
-does not implement SMP/bond storage; pairing requests return an explicit
-unsupported result instead of hanging. Service-cache clearing is a successful
-no-op because the proxy deliberately does not retain remote caches.
-
-Advertisement address types are preserved from the HCI report through the
-ESPHome API. This is required for peripherals whose on-air address is random;
-the proxy no longer assumes every BLE address is public.
-
-When a GATT connection is opened, the proxy pauses BlueZ scanning for the
-duration of the libblepp connection attempt and resumes it for subscribed API
-clients afterward. This avoids BlueZ/libblepp scan-command contention while
-preserving Nanoleaf advertisement monitoring between connections.
-
-Runtime logging is controlled by the generated
-`/mnt/config/ble-proxy/ble-proxy.conf`; the public example defaults to
-`LOG_LEVEL=Warning`, `BLE_PROXY_VERBOSE=0`, and `ESPHOME_API_VERBOSE=0`. The
-startup supervisor exports those three names into the proxy process environment
-before each launch. Set either verbose flag to `1` only for a short diagnostic
-window because packet and advertisement logs are otherwise suppressed or
-rate-limited.
-
-## Rebuilding the BLE proxy
-
-The checked-in BLE executable is reproducible from pinned upstream sources and
-the patches in `patches/`. The build links NimBLE,
-BlueZ, and libblepp statically for the Steam Link ARMv7 userspace:
-
-```sh
-scripts/build-ble-proxy.sh
-sha256sum steamlink/overlay/mnt/config/ble-proxy/esphome-linux
-```
-
-The recipe does not store OTA credentials or dependency source in Git. Override
-`CC`, `CXX`, `AR`, `STRIP`, or the source pin variables when reproducing it with
-another ARMv7 toolchain or an audited mirror.
-
-## Binary provenance
-
-Everything under `usbip/` is built for the Steam Link ARMv7 userspace and is
-dynamically linked against its glibc 2.19, so those binaries will not run on a
-different firmware revision without a rebuild. The `modules/` directory holds
-kernel modules that `usbip-start` loads with `insmod` at boot.
-
-The BLE proxy binary is an ARMv7 artifact built by the pinned recipe above. It is
-statically linked, so unlike `usbip/` it carries no glibc dependency.
-
-The build strips DWARF debug data and symbol tables after linking; the current
-GATT/OTA artifact is about 1.6 MB and retains the `.ARM.exidx` and
-`.ARM.extab` unwind tables. Rebuilds should be verified with `file`, `readelf`,
-and the checksum manifest rather than assuming byte identity with an older
-binary.
-
-Checksums for all eight binaries are recorded in `artifacts/SHA256SUMS` and can
-be verified from the repository root:
-
-```sh
 sha256sum -c artifacts/SHA256SUMS
 ```
-
-The USB/IP artifacts remain inherited binaries; rebuild them separately if that
-provenance is not acceptable. The BLE artifact can be regenerated with the
-command above.
