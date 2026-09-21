@@ -59,16 +59,17 @@ them needs no edits:
 | `S96steamlink-device-status.sh` | `/mnt/config/usb-proxy/usb-proxy.conf` is non-empty |
 | `S99steamlink-diagnostics.sh` | `ENABLE_DIAGNOSTICS=1` in `setup.conf` |
 | `S99vhusbd.sh` | `ENABLE_VIRTUALHERE=1` in `setup.conf` |
-| `S98usb-proxy.sh` | `/mnt/config/bin/steamlink_usb_proxy.py` and `usb-proxy.conf` both exist |
-| `S98duckypad-events.sh` | `/mnt/config/bin/duckypad_event_bridge.py` and its conf both exist |
-| `S99duckypad-agent.sh` | `/mnt/config/bin/duckypad_hid_agent` is executable |
-| `S99duckypad-rel-mapper.sh` | `/mnt/config/bin/duckypad_rel_mapper` is executable and `usb-proxy.conf` has MQTT credentials |
 | `S03install-deploy-key.sh` | always |
 
 Every hook is inert unless its prerequisite exists, so the same overlay can be
 deployed to every unit in the fleet regardless of what hardware each one has.
 Keep it that way: a hook that starts work unconditionally will run on all of
 them.
+
+The duckyPad and USB-proxy launchers are deliberately **not** here. They belong
+to their own projects, and the Python ones could never have worked anyway --
+this firmware ships no Python interpreter, so they only ever wrote
+"No python interpreter found" to a log on every boot.
 
 `S03install-deploy-key.sh` writes the fleet public key to **both**
 `/mnt/config/ssh/authorized_keys` and `/home/steam/.ssh/authorized_keys`.

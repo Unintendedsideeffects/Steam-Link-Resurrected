@@ -11,4 +11,3 @@ steamlink/overlay/mnt/config/ssh/authorized_keys
 steamlink/overlay/mnt/config/ble-proxy/ble-proxy.conf
 steamlink/PROVISIONED-SHA256SUMS
 steamlink/overlay/mnt/config/usb-proxy/usb-proxy.conf
-steamlink/overlay/mnt/config/duckypad/duckypad_event_bridge.conf
