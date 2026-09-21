@@ -59,6 +59,23 @@ them needs no edits:
 | `S96steamlink-device-status.sh` | `/mnt/config/usb-proxy/usb-proxy.conf` is non-empty |
 | `S99steamlink-diagnostics.sh` | `ENABLE_DIAGNOSTICS=1` in `setup.conf` |
 | `S99vhusbd.sh` | `ENABLE_VIRTUALHERE=1` in `setup.conf` |
+| `S98usb-proxy.sh` | `/mnt/config/bin/steamlink_usb_proxy.py` and `usb-proxy.conf` both exist |
+| `S98duckypad-events.sh` | `/mnt/config/bin/duckypad_event_bridge.py` and its conf both exist |
+| `S99duckypad-agent.sh` | `/mnt/config/bin/duckypad_hid_agent` is executable |
+| `S99duckypad-rel-mapper.sh` | `/mnt/config/bin/duckypad_rel_mapper` is executable and `usb-proxy.conf` has MQTT credentials |
+| `S03install-deploy-key.sh` | always |
+
+Every hook is inert unless its prerequisite exists, so the same overlay can be
+deployed to every unit in the fleet regardless of what hardware each one has.
+Keep it that way: a hook that starts work unconditionally will run on all of
+them.
+
+`S03install-deploy-key.sh` writes the fleet public key to **both**
+`/mnt/config/ssh/authorized_keys` and `/home/steam/.ssh/authorized_keys`.
+Stock `sshd_config` uses `AuthorizedKeysFile .ssh/authorized_keys`, and root's
+home on this firmware is `/home/steam` -- `/root` is on the read-only rootfs
+and cannot be written at all. Writing only the `/mnt/config` path appears to
+succeed and still leaves key authentication broken.
 
 `S95wifi-watchdog.sh` is for boxes whose uplink is WiFi, where the wired port is
 no longer a management path. It derives the ConnMan service, uplink interface
@@ -69,6 +86,12 @@ It escalates reconnect -> restart connmand -> reload the wifi stack -> reboot
 `/mnt/config/log/wifi-watchdog.log`. **Read that log rather than assuming it
 recovers fine** -- regular level-3 escalations mean a real fault that wants
 fixing at the source.
+
+**`/etc/init.d/startup/` executes everything matching `S*`.** `startup.sh`
+loops over `$STARTUPDIR/S*` and runs every executable match, so a file such as
+`S97usbip.sh.pre-minfree-20260919` is not a backup -- it is a second copy of
+the service, started on every boot. Never park a backup in this directory;
+keep it outside the tree or name it so it cannot match `S*`.
 
 `S99steam` does not invoke `S95wifi-watchdog.sh` or
 `S96steamlink-device-status.sh` on the first boot; both start from the second

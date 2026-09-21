@@ -1,0 +1,16 @@
+# Device-local config for the USB proxy, device-status reporter and the
+# duckyPad relative-axis mapper. provision-key.sh writes the real file from
+# the TUI answers; it is ignored by Git because it carries a password.
+DEVICE_MATCH=
+MQTT_HOST=mqtt.example.lan
+MQTT_PORT=1883
+MQTT_USER=replace-me
+MQTT_PASSWORD=replace-me
+MQTT_TOPIC=usb-proxy/key
+MQTT_STATUS_TOPIC=steamlink/<hostname>/status
+TCP_HOST=
+TCP_PORT=
+DEVICE_ID=<hostname>
+# Optional, read by S99duckypad-rel-mapper.sh:
+REL_EVENT_DEVICE=/dev/input/event1
+REL_TOPIC=usb-proxy/event
