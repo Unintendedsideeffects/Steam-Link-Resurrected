@@ -1,0 +1,27 @@
+#!/bin/sh
+
+# S01config copies the USB overlay while startup.sh is already iterating over
+# its original script list.  S99steam is a stock late anchor, so use the
+# copied anchor to run the overlay startup hooks on that same first boot.
+# A persistent marker prevents duplicate launches on later boots, where the
+# hooks are already present in startup.sh's initial glob.
+
+MARKER=/mnt/config/system/overlay_startup_completed.txt
+
+if [ ! -f "$MARKER" ]; then
+    for SCRIPT in \
+        /etc/init.d/startup/S03steamlink-boot-watchdog.sh \
+        /etc/init.d/startup/S97hidraw-nodes.sh \
+        /etc/init.d/startup/S97usbip.sh \
+        /etc/init.d/startup/S98steamlink-ble-proxy.sh \
+        /etc/init.d/startup/S99steamlink-diagnostics.sh \
+        /etc/init.d/startup/S99vhusbd.sh; do
+        [ -x "$SCRIPT" ] || continue
+        "$SCRIPT" >/dev/null 2>&1 || true
+    done
+    printf '%s\n' "$(date)" >"$MARKER"
+    sync
+fi
+
+# Preserve the stock Steam Link UI startup.
+/home/steam/rc.local

@@ -43,6 +43,37 @@ machine running the bootstrap. It seeds only the public key into the device
 path /mnt/config/ssh/authorized_keys and shows the private-key path and
 first-login command at the end. The private key is never copied to the USB key.
 
+## Startup scripts
+
+`steamlink/overlay/etc/init.d/startup/` holds the boot hooks copied onto the
+device. `S99steam` is the late anchor that runs the others on the very first
+boot, before they are picked up by the stock startup glob.
+
+Several are inert unless something opts them in, so a device that does not want
+them needs no edits:
+
+| Script | Runs when |
+| --- | --- |
+| `S03steamlink-boot-watchdog.sh` | `/mnt/config/system/enable_lan_factory_reset_watchdog.txt` exists |
+| `S95wifi-watchdog.sh` | ConnMan has a wifi service *and* the default route is on a wireless interface |
+| `S96steamlink-device-status.sh` | `/mnt/config/usb-proxy/usb-proxy.conf` is non-empty |
+| `S99steamlink-diagnostics.sh` | `ENABLE_DIAGNOSTICS=1` in `setup.conf` |
+| `S99vhusbd.sh` | `ENABLE_VIRTUALHERE=1` in `setup.conf` |
+
+`S95wifi-watchdog.sh` is for boxes whose uplink is WiFi, where the wired port is
+no longer a management path. It derives the ConnMan service, uplink interface
+and gateway at runtime, so it carries no addresses or SSIDs; override with
+`WIFI_WATCHDOG_SVC`, `WIFI_WATCHDOG_UP` or `WIFI_WATCHDOG_GW` in `setup.conf`.
+It escalates reconnect -> restart connmand -> reload the wifi stack -> reboot
+(rate limited to once an hour) and logs every transition to
+`/mnt/config/log/wifi-watchdog.log`. **Read that log rather than assuming it
+recovers fine** -- regular level-3 escalations mean a real fault that wants
+fixing at the source.
+
+`S99steam` does not invoke `S95wifi-watchdog.sh` or
+`S96steamlink-device-status.sh` on the first boot; both start from the second
+boot onward, once the stock glob sees them.
+
 ## TUI screenshots
 
 These are captures of `sudo ./launch.sh` actually running: real whiptail
