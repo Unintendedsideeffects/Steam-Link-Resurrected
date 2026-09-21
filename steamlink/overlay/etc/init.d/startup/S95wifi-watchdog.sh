@@ -110,7 +110,6 @@ recover_l4() {
 }
 
 (
-echo $$ > $PIDFILE
 log "watchdog started (interval ${INTERVAL}s, uplink=$UP gw=$GW)"
 fails=0
 while true; do
@@ -134,3 +133,8 @@ while true; do
 	sleep $INTERVAL
 done
 ) </dev/null >/dev/null 2>&1 &
+
+# $$ inside a subshell is the PARENT's pid on this shell, so writing the pidfile
+# from within the loop records a pid that has already exited and the
+# single-instance guard above silently never fires. Record $! instead.
+echo $! > $PIDFILE
