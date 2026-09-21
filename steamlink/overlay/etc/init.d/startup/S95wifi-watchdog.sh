@@ -41,15 +41,25 @@ detect_up()  { route -n 2>/dev/null | awk '$1=="0.0.0.0" {print $8; exit}'; }
 detect_gw()  { route -n 2>/dev/null | awk '$1=="0.0.0.0" {print $2; exit}'; }
 iface_ip()   { ifconfig "$1" 2>/dev/null | sed -n 's/.*inet addr:\([0-9.]*\).*/\1/p'; }
 
-SVC=$(getconf_ WIFI_WATCHDOG_SVC); [ -n "$SVC" ] || SVC=$(detect_svc)
-UP=$(getconf_ WIFI_WATCHDOG_UP);   [ -n "$UP" ]  || UP=$(detect_up)
-GW=$(getconf_ WIFI_WATCHDOG_GW);   [ -n "$GW" ]  || GW=$(detect_gw)
+# This runs from /etc/init.d/startup before ConnMan has associated, so none of
+# these can be detected yet. Deciding immediately would make the watchdog exit
+# at every boot -- exactly when it is most needed -- so wait for the uplink to
+# appear first. Poll rather than sleep a fixed time: a healthy box is armed in
+# seconds, and a box that never associates still gives up rather than arming an
+# escalation ladder it cannot reason about.
+SETTLE_TIMEOUT=300
+SETTLE_STEP=5
 
-# Without a wifi service this box is not WiFi-uplinked; stay inert rather than
-# guessing, or the escalation ladder would eventually reboot a healthy device.
-[ -n "$SVC" ] || exit 0
-case "$UP" in mlan0|wlan0|wlp*) ;; *) exit 0 ;; esac
-[ -n "$GW" ] || exit 0
+resolve() {
+	SVC=$(getconf_ WIFI_WATCHDOG_SVC); [ -n "$SVC" ] || SVC=$(detect_svc)
+	UP=$(getconf_ WIFI_WATCHDOG_UP);   [ -n "$UP" ]  || UP=$(detect_up)
+	GW=$(getconf_ WIFI_WATCHDOG_GW);   [ -n "$GW" ]  || GW=$(detect_gw)
+	[ -n "$SVC" ] || return 1
+	case "$UP" in mlan0|wlan0|wlp*) ;; *) return 1 ;; esac
+	[ -n "$GW" ] || return 1
+	return 0
+}
+
 
 diag() {
 	ap=$(iwconfig $UP 2>/dev/null | sed -n 's/.*Access Point: *//p' | tr -d ' ')
@@ -110,6 +120,20 @@ recover_l4() {
 }
 
 (
+	waited=0
+	until resolve; do
+		if [ $waited -ge $SETTLE_TIMEOUT ]; then
+			# No wifi uplink after the settle window. Either this box is wired or
+			# the radio never came up; in both cases arming the ladder would be
+			# guessing, and rung 4 reboots. Stay inert -- but say so, because a
+			# silent exit here is indistinguishable from a watchdog that is running.
+			log "inert: no wifi uplink after ${SETTLE_TIMEOUT}s (svc=${SVC:-none} uplink=${UP:-none} gw=${GW:-none}); not arming"
+			exit 0
+		fi
+		sleep $SETTLE_STEP
+		waited=$((waited + SETTLE_STEP))
+	done
+	[ $waited -gt 0 ] && log "uplink settled after ${waited}s"
 log "watchdog started (interval ${INTERVAL}s, uplink=$UP gw=$GW)"
 fails=0
 while true; do
